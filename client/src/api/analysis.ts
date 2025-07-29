@@ -1,177 +1,193 @@
 import api from './api';
 
-// Description: Analyze video with natural language prompt
+// Description: Start video analysis stream
+// Endpoint: POST /api/video-analysis/stream
+// Request: { cameraId: string, prompt: string, analysisInterval?: number, frameBase64?: string }
+// Response: { success: boolean, streamId: string, message: string, analysisInterval: number, cameraName: string }
+export const startAnalysisStream = async (data: { cameraId: string; prompt: string; analysisInterval?: number; frameBase64?: string }) => {
+  try {
+    return await api.post('/api/video-analysis/stream', data);
+  } catch (error) {
+    throw new Error(error?.response?.data?.error || error.message);
+  }
+}
+
+// Description: Stop video analysis stream
+// Endpoint: DELETE /api/video-analysis/stream/:streamId
+// Request: { streamId: string }
+// Response: { success: boolean, message: string, streamId: string }
+export const stopAnalysisStream = async (streamId: string) => {
+  try {
+    console.log('[ANALYSIS_API] ===== STOP ANALYSIS STREAM START =====');
+    console.log('[ANALYSIS_API] Stopping analysis stream with ID:', streamId);
+    console.log('[ANALYSIS_API] Stream ID type:', typeof streamId);
+    console.log('[ANALYSIS_API] API call timestamp:', new Date().toISOString());
+    console.log('[ANALYSIS_API] Making DELETE request to:', `/api/video-analysis/stream/${streamId}`);
+    
+    const response = await api.delete(`/api/video-analysis/stream/${streamId}`);
+    
+    console.log('[ANALYSIS_API] ===== STOP ANALYSIS STREAM RESPONSE =====');
+    console.log('[ANALYSIS_API] Response received at:', new Date().toISOString());
+    console.log('[ANALYSIS_API] Response status:', response.status);
+    console.log('[ANALYSIS_API] Response data:', response.data);
+    console.log('[ANALYSIS_API] Stop analysis successful');
+    
+    return response.data;
+  } catch (error) {
+    console.error('[ANALYSIS_API] ===== STOP ANALYSIS STREAM ERROR =====');
+    console.error('[ANALYSIS_API] Error stopping analysis stream:', error);
+    console.error('[ANALYSIS_API] Error type:', error.constructor.name);
+    console.error('[ANALYSIS_API] Error message:', error.message);
+    console.error('[ANALYSIS_API] Error response:', error.response);
+    console.error('[ANALYSIS_API] Error response status:', error.response?.status);
+    console.error('[ANALYSIS_API] Error response data:', error.response?.data);
+    
+    throw new Error(error?.response?.data?.error || error.message);
+  }
+}
+
+// Description: Query analysis results
+// Endpoint: POST /api/video-analysis/query
+// Request: { streamId: string, query: string, limit?: number }
+// Response: { success: boolean, query: string, streamId: string, matchedElements: Array, totalMatches: number }
+export const queryAnalysisResults = async (data: { streamId: string; query: string; limit?: number }) => {
+  try {
+    return await api.post('/api/video-analysis/query', data);
+  } catch (error) {
+    throw new Error(error?.response?.data?.error || error.message);
+  }
+}
+
+// Description: Get dynamic prompt suggestions
+// Endpoint: GET /api/video-analysis/suggestions/:cameraId OR POST /api/video-analysis/suggestions/:cameraId
+// Request: { cameraId: string, frameBase64?: string }
+// Response: { success: boolean, suggestions: Array<string>, cameraId: string, cameraName: string }
+export const getPromptSuggestions = async (cameraId: string, frameBase64?: string, camera?: any) => {
+  try {
+    console.log('[ANALYSIS_API] ===== GET PROMPT SUGGESTIONS START =====');
+    console.log('[ANALYSIS_API] getPromptSuggestions called with:', { cameraId, hasFrame: !!frameBase64 });
+    console.log('[ANALYSIS_API] Frame data size:', frameBase64?.length || 0);
+    console.log('[ANALYSIS_API] Camera object:', camera);
+    console.log('[ANALYSIS_API] Camera type:', camera?.type);
+    console.log('[ANALYSIS_API] Camera stream URL:', camera?.streamUrl);
+    console.log('[ANALYSIS_API] API call timestamp:', new Date().toISOString());
+
+    // Determine if this is a USB camera
+    const isUSBCamera = camera && (
+      camera.type === 'usb' || 
+      camera.streamUrl?.startsWith('usb:')
+    );
+
+    console.log('[ANALYSIS_API] USB camera detected:', isUSBCamera);
+
+    // If frame data is provided OR it's a USB camera, use POST endpoint
+    if (frameBase64 || isUSBCamera) {
+      console.log('[ANALYSIS_API] Using POST endpoint for USB camera or with frame data');
+      console.log('[ANALYSIS_API] Making POST request to:', `/api/video-analysis/suggestions/${cameraId}`);
+
+      const requestData = frameBase64 ? { frameBase64 } : {};
+      console.log('[ANALYSIS_API] POST request data:', { hasFrameData: !!frameBase64 });
+
+      const response = await api.post(`/api/video-analysis/suggestions/${cameraId}`, requestData);
+
+      console.log('[ANALYSIS_API] POST response received:', response);
+      console.log('[ANALYSIS_API] POST response status:', response.status);
+      console.log('[ANALYSIS_API] POST response data:', response.data);
+
+      return response;
+    } else {
+      console.log('[ANALYSIS_API] Using GET endpoint for non-USB camera without frame data');
+      console.log('[ANALYSIS_API] Making GET request to:', `/api/video-analysis/suggestions/${cameraId}`);
+
+      // For non-USB cameras or when no frame is available, use GET endpoint
+      const response = await api.get(`/api/video-analysis/suggestions/${cameraId}`);
+
+      console.log('[ANALYSIS_API] GET response received:', response);
+      console.log('[ANALYSIS_API] GET response status:', response.status);
+      console.log('[ANALYSIS_API] GET response data:', response.data);
+
+      return response;
+    }
+  } catch (error) {
+    console.error('[ANALYSIS_API] ===== GET PROMPT SUGGESTIONS ERROR =====');
+    console.error('[ANALYSIS_API] Error in getPromptSuggestions:', error);
+    console.error('[ANALYSIS_API] Error type:', error.constructor.name);
+    console.error('[ANALYSIS_API] Error message:', error.message);
+    console.error('[ANALYSIS_API] Error response:', error.response);
+    console.error('[ANALYSIS_API] Error response status:', error.response?.status);
+    console.error('[ANALYSIS_API] Error response data:', error.response?.data);
+
+    throw new Error(error?.response?.data?.error || error.message);
+  }
+}
+
+// Description: Send frame for analysis (USB cameras)
+// Endpoint: POST /api/video-analysis/frame
+// Request: { streamId: string, frameBase64: string, prompt: string }
+// Response: { success: boolean, message: string }
+export const sendFrameForAnalysis = async (data: { streamId: string; frameBase64: string; prompt: string }) => {
+  try {
+    return await api.post('/api/video-analysis/frame', data);
+  } catch (error) {
+    throw new Error(error?.response?.data?.error || error.message);
+  }
+}
+
+// Description: Analyze video with natural language prompt (DEPRECATED - use startAnalysisStream instead)
 // Endpoint: POST /api/analysis/prompt
 // Request: { prompt: string, cameraId?: string }
 // Response: { success: boolean, result: string, confidence: number, timestamp: string }
 export const analyzePrompt = (data: { prompt: string; cameraId?: string }) => {
-  // Mocking the response
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      // Generate realistic mock responses based on prompt
-      const prompt = data.prompt.toLowerCase();
-      let result = "No objects detected";
-      let confidence = 0.85;
-
-      if (prompt.includes('car') || prompt.includes('vehicle')) {
-        const count = Math.floor(Math.random() * 8) + 1;
-        if (prompt.includes('red')) {
-          result = `I found ${count} red car${count > 1 ? 's' : ''}`;
-        } else {
-          result = `I found ${count} car${count > 1 ? 's' : ''}`;
-        }
-        confidence = 0.92;
-      } else if (prompt.includes('people') || prompt.includes('person')) {
-        const count = Math.floor(Math.random() * 5) + 1;
-        result = `I found ${count} person${count > 1 ? 's' : ''}`;
-        confidence = 0.88;
-      } else if (prompt.includes('truck')) {
-        const count = Math.floor(Math.random() * 3) + 1;
-        result = `I found ${count} truck${count > 1 ? 's' : ''}`;
-        confidence = 0.90;
-      } else if (prompt.includes('bicycle') || prompt.includes('bike')) {
-        const count = Math.floor(Math.random() * 4) + 1;
-        result = `I found ${count} bicycle${count > 1 ? 's' : ''}`;
-        confidence = 0.86;
-      } else if (prompt.includes('mask')) {
-        const count = Math.floor(Math.random() * 3) + 1;
-        result = `I found ${count} person${count > 1 ? 's' : ''} wearing mask${count > 1 ? 's' : ''}`;
-        confidence = 0.83;
-      } else if (prompt.includes('parking')) {
-        const count = Math.floor(Math.random() * 10) + 5;
-        result = `I found ${count} available parking spaces`;
-        confidence = 0.91;
-      }
-
-      resolve({
-        success: true,
-        result,
-        confidence,
-        timestamp: new Date().toISOString()
-      });
-    }, 800);
+  // This function is deprecated in favor of the new streaming analysis
+  console.warn('[ANALYSIS_API] analyzePrompt is deprecated, use startAnalysisStream instead');
+  
+  // Return a promise that resolves with a deprecation message
+  return Promise.resolve({
+    success: false,
+    result: "This function has been replaced with real-time streaming analysis. Please use the new analysis system.",
+    confidence: 0,
+    timestamp: new Date().toISOString()
   });
-  // Uncomment the below lines to make an actual API call
-  // try {
-  //   return await api.post('/api/analysis/prompt', data);
-  // } catch (error) {
-  //   throw new Error(error?.response?.data?.error || error.message);
-  // }
 }
 
-// Description: Get analysis history
+// Description: Get analysis history (DEPRECATED - use queryAnalysisResults instead)
 // Endpoint: GET /api/analysis/history
 // Request: { limit?: number, cameraId?: string }
 // Response: { history: Array<{ _id: string, prompt: string, result: string, timestamp: string, confidence: number, cameraId?: string }> }
 export const getAnalysisHistory = (params?: { limit?: number; cameraId?: string }) => {
-  // Mocking the response
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      const mockHistory = [
-        {
-          _id: '1',
-          prompt: 'Count red cars',
-          result: 'I found 3 red cars',
-          timestamp: new Date(Date.now() - 30000).toISOString(),
-          confidence: 0.92,
-          cameraId: '1'
-        },
-        {
-          _id: '2',
-          prompt: 'Are there any people?',
-          result: 'I found 2 persons',
-          timestamp: new Date(Date.now() - 60000).toISOString(),
-          confidence: 0.88,
-          cameraId: '1'
-        },
-        {
-          _id: '3',
-          prompt: 'Count trucks',
-          result: 'I found 1 truck',
-          timestamp: new Date(Date.now() - 120000).toISOString(),
-          confidence: 0.90,
-          cameraId: '2'
-        },
-        {
-          _id: '4',
-          prompt: 'Detect bicycles',
-          result: 'I found 2 bicycles',
-          timestamp: new Date(Date.now() - 180000).toISOString(),
-          confidence: 0.86,
-          cameraId: '1'
-        },
-        {
-          _id: '5',
-          prompt: 'Count people wearing masks',
-          result: 'I found 1 person wearing mask',
-          timestamp: new Date(Date.now() - 240000).toISOString(),
-          confidence: 0.83,
-          cameraId: '2'
-        }
-      ];
-
-      const limit = params?.limit || 10;
-      const filteredHistory = params?.cameraId 
-        ? mockHistory.filter(item => item.cameraId === params.cameraId)
-        : mockHistory;
-
-      resolve({
-        history: filteredHistory.slice(0, limit)
-      });
-    }, 300);
+  // This function is deprecated in favor of the new query system
+  console.warn('[ANALYSIS_API] getAnalysisHistory is deprecated, use queryAnalysisResults instead');
+  
+  return Promise.resolve({
+    history: []
   });
-  // Uncomment the below lines to make an actual API call
-  // try {
-  //   const queryParams = new URLSearchParams();
-  //   if (params?.limit) queryParams.append('limit', params.limit.toString());
-  //   if (params?.cameraId) queryParams.append('cameraId', params.cameraId);
-  //   return await api.get(`/api/analysis/history?${queryParams}`);
-  // } catch (error) {
-  //   throw new Error(error?.response?.data?.error || error.message);
-  // }
 }
 
-// Description: Stop analysis for a camera
+// Description: Stop analysis for a camera (DEPRECATED - use stopAnalysisStream instead)
 // Endpoint: POST /api/analysis/stop
 // Request: { cameraId: string }
 // Response: { success: boolean, message: string }
 export const stopAnalysis = (data: { cameraId: string }) => {
-  // Mocking the response
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        success: true,
-        message: 'Analysis stopped successfully'
-      });
-    }, 200);
+  // This function is deprecated
+  console.warn('[ANALYSIS_API] stopAnalysis is deprecated, use stopAnalysisStream instead');
+  
+  return Promise.resolve({
+    success: true,
+    message: 'Please use the new streaming analysis system'
   });
-  // Uncomment the below lines to make an actual API call
-  // try {
-  //   return await api.post('/api/analysis/stop', data);
-  // } catch (error) {
-  //   throw new Error(error?.response?.data?.error || error.message);
-  // }
 }
 
-// Description: Get real-time analysis status
+// Description: Get real-time analysis status (DEPRECATED)
 // Endpoint: GET /api/analysis/status/:cameraId
 // Request: { cameraId: string }
 // Response: { isActive: boolean, currentPrompt?: string, lastUpdate?: string }
 export const getAnalysisStatus = (cameraId: string) => {
-  // Mocking the response
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        isActive: Math.random() > 0.5,
-        currentPrompt: 'Count red cars',
-        lastUpdate: new Date().toISOString()
-      });
-    }, 200);
+  // This function is deprecated
+  console.warn('[ANALYSIS_API] getAnalysisStatus is deprecated');
+  
+  return Promise.resolve({
+    isActive: false,
+    currentPrompt: null,
+    lastUpdate: null
   });
-  // Uncomment the below lines to make an actual API call
-  // try {
-  //   return await api.get(`/api/analysis/status/${cameraId}`);
-  // } catch (error) {
-  //   throw new Error(error?.response?.data?.error || error.message);
-  // }
 }

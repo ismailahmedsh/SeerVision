@@ -6,12 +6,67 @@ import api from './api';
 // Response: { cameras: Array<{ _id: string, name: string, type: string, streamUrl: string, status: 'connected' | 'disconnected', lastSeen?: string }> }
 export const getCameras = async () => {
   try {
-    console.log('[CAMERAS_API] Getting all cameras')
+    console.log('[CAMERAS_API] ===== GET CAMERAS API START =====')
+    console.log('[CAMERAS_API] Making request to /api/cameras')
+    console.log('[CAMERAS_API] Request timestamp:', new Date().toISOString())
+    console.log('[CAMERAS_API] Auth token exists:', !!localStorage.getItem('accessToken'))
+    console.log('[CAMERAS_API] Auth token preview:', localStorage.getItem('accessToken')?.substring(0, 20) + '...')
+
     const response = await api.get('/api/cameras');
-    console.log('[CAMERAS_API] Get cameras response:', response.data)
+
+    console.log('[CAMERAS_API] ===== GET CAMERAS API RESPONSE =====')
+    console.log('[CAMERAS_API] Response received at:', new Date().toISOString())
+    console.log('[CAMERAS_API] Response status:', response.status)
+    console.log('[CAMERAS_API] Response status text:', response.statusText)
+    console.log('[CAMERAS_API] Response headers:', response.headers)
+    console.log('[CAMERAS_API] Response data type:', typeof response.data)
+    console.log('[CAMERAS_API] Response data keys:', Object.keys(response.data || {}))
+    console.log('[CAMERAS_API] Full response data:', JSON.stringify(response.data, null, 2))
+    console.log('[CAMERAS_API] Number of cameras:', response.data?.cameras?.length || 0)
+
+    if (response.data?.cameras) {
+      console.log('[CAMERAS_API] Cameras array validation:')
+      console.log('[CAMERAS_API] - Is array:', Array.isArray(response.data.cameras))
+      console.log('[CAMERAS_API] - Length:', response.data.cameras.length)
+      
+      response.data.cameras.forEach((camera, index) => {
+        console.log(`[CAMERAS_API] Camera ${index} validation:`, {
+          hasId: !!camera._id,
+          hasName: !!camera.name,
+          hasType: !!camera.type,
+          hasStreamUrl: !!camera.streamUrl,
+          hasStatus: !!camera.status,
+          id: camera._id,
+          name: camera.name,
+          type: camera.type,
+          status: camera.status
+        })
+      })
+    }
+
+    console.log('[CAMERAS_API] ===== GET CAMERAS API SUCCESS =====')
     return response.data;
   } catch (error) {
-    console.error('[CAMERAS_API] Error getting cameras:', error)
+    console.error('[CAMERAS_API] ===== GET CAMERAS API ERROR =====')
+    console.error('[CAMERAS_API] Error timestamp:', new Date().toISOString())
+    console.error('[CAMERAS_API] Error type:', error.constructor.name)
+    console.error('[CAMERAS_API] Error message:', error.message)
+    console.error('[CAMERAS_API] Error code:', error.code)
+    console.error('[CAMERAS_API] Error stack:', error.stack)
+    
+    if (error.response) {
+      console.error('[CAMERAS_API] Response error details:')
+      console.error('[CAMERAS_API] - Status:', error.response.status)
+      console.error('[CAMERAS_API] - Status text:', error.response.statusText)
+      console.error('[CAMERAS_API] - Headers:', error.response.headers)
+      console.error('[CAMERAS_API] - Data:', error.response.data)
+    } else if (error.request) {
+      console.error('[CAMERAS_API] Request error details:')
+      console.error('[CAMERAS_API] - Request:', error.request)
+    } else {
+      console.error('[CAMERAS_API] Setup error:', error.message)
+    }
+
     throw new Error(error?.response?.data?.error || error.message);
   }
 }

@@ -34,12 +34,52 @@ class CameraService {
 
   static async getAllCameras(userId) {
     try {
+      console.log('[CAMERA_SERVICE] ===== GET ALL CAMERAS START =====');
+      console.log('[CAMERA_SERVICE] Service method called at:', new Date().toISOString());
       console.log('[CAMERA_SERVICE] Getting all cameras for user:', userId);
+      console.log('[CAMERA_SERVICE] User ID type:', typeof userId);
+      console.log('[CAMERA_SERVICE] User ID value:', userId);
+
+      if (!userId) {
+        console.error('[CAMERA_SERVICE] No userId provided');
+        console.error('[CAMERA_SERVICE] userId is:', userId);
+        throw new Error('User ID is required');
+      }
+
+      console.log('[CAMERA_SERVICE] Calling Camera.findAll...');
       const cameras = await Camera.findAll(userId);
-      console.log('[CAMERA_SERVICE] Retrieved cameras:', cameras.length);
+      console.log('[CAMERA_SERVICE] Camera.findAll completed');
+      console.log('[CAMERA_SERVICE] Cameras returned type:', typeof cameras);
+      console.log('[CAMERA_SERVICE] Cameras is array:', Array.isArray(cameras));
+      console.log('[CAMERA_SERVICE] Cameras count:', cameras?.length || 0);
+      console.log('[CAMERA_SERVICE] Raw camera data from model:', JSON.stringify(cameras, null, 2));
+
+      if (cameras && cameras.length > 0) {
+        console.log('[CAMERA_SERVICE] Processing cameras...');
+        cameras.forEach((camera, index) => {
+          console.log(`[CAMERA_SERVICE] Camera ${index} details:`, {
+            id: camera._id,
+            name: camera.name,
+            type: camera.type,
+            streamUrl: camera.streamUrl,
+            status: camera.status,
+            analysisInterval: camera.analysisInterval,
+            createdAt: camera.createdAt
+          });
+        });
+      } else {
+        console.log('[CAMERA_SERVICE] No cameras found for user:', userId);
+      }
+
+      console.log('[CAMERA_SERVICE] ===== GET ALL CAMERAS SUCCESS =====');
       return cameras;
     } catch (error) {
-      console.error('[CAMERA_SERVICE] Error getting cameras:', error.message);
+      console.error('[CAMERA_SERVICE] ===== GET ALL CAMERAS ERROR =====');
+      console.error('[CAMERA_SERVICE] Error timestamp:', new Date().toISOString());
+      console.error('[CAMERA_SERVICE] Error in getAllCameras:', error.message);
+      console.error('[CAMERA_SERVICE] Error type:', error.constructor.name);
+      console.error('[CAMERA_SERVICE] Error stack:', error.stack);
+      console.error('[CAMERA_SERVICE] Error details:', error);
       throw error;
     }
   }
@@ -217,7 +257,8 @@ class CameraService {
   static async updateCameraSettings(id, settings, userId) {
     try {
       console.log('[CAMERA_SERVICE] Updating camera settings:', id);
-      
+      console.log('[CAMERA_SERVICE] Settings to update:', settings);
+
       const updateData = {
         recordingEnabled: settings.recordingEnabled,
         motionDetection: settings.motionDetection,
@@ -231,8 +272,16 @@ class CameraService {
         updateData.bitrate = settings.qualitySettings.bitrate;
       }
 
+      console.log('[CAMERA_SERVICE] Final update data:', updateData);
+
       await Camera.update(id, updateData, userId);
       console.log('[CAMERA_SERVICE] Camera settings updated successfully');
+      
+      // Log the analysis interval specifically
+      if (settings.analysisInterval) {
+        console.log('[CAMERA_SERVICE] Analysis interval updated to:', settings.analysisInterval, 'seconds');
+      }
+      
       return { success: true };
     } catch (error) {
       console.error('[CAMERA_SERVICE] Error updating camera settings:', error.message);

@@ -13,7 +13,7 @@ const express = require("express");
 const session = require("express-session");
 
 // Add try-catch around route imports to catch any import errors
-let basicRoutes, authRoutes, userRoutes, cameraRoutes;
+let basicRoutes, authRoutes, userRoutes, cameraRoutes, videoAnalysisRoutes;
 try {
   console.log('[SERVER] Loading route modules...');
   basicRoutes = require("./routes/index");
@@ -24,6 +24,8 @@ try {
   console.log('[SERVER] - User routes loaded');
   cameraRoutes = require("./routes/cameraRoutes");
   console.log('[SERVER] - Camera routes loaded');
+  videoAnalysisRoutes = require("./routes/videoAnalysisRoutes");
+  console.log('[SERVER] - Video analysis routes loaded');
 } catch (error) {
   console.error('[SERVER] CRITICAL ERROR loading route modules:', error);
   console.error('[SERVER] Error stack:', error.stack);
@@ -140,6 +142,16 @@ try {
   console.error('[SERVER] Error stack:', error.stack);
 }
 
+// Video Analysis Routes
+try {
+  console.log('[SERVER] Registering video analysis routes at /api/video-analysis...');
+  app.use('/api/video-analysis', videoAnalysisRoutes);
+  console.log('[SERVER] - Video analysis routes registered');
+} catch (error) {
+  console.error('[SERVER] Error registering video analysis routes:', error);
+  console.error('[SERVER] Error stack:', error.stack);
+}
+
 // If no routes handled the request, it's a 404
 app.use((req, res, next) => {
   console.log(`[SERVER] 404 - Route not found: ${req.method} ${req.url}`);
@@ -163,6 +175,7 @@ try {
     console.log(`[SERVER] - Auth routes: /api/auth`);
     console.log(`[SERVER] - User routes: /api/users`);
     console.log(`[SERVER] - Camera routes: /api/cameras`);
+    console.log(`[SERVER] - Video analysis routes: /api/video-analysis`);
     console.log('[SERVER] Server startup complete!');
   });
 } catch (error) {

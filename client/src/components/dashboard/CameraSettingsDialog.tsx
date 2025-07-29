@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { Settings, Save, Loader2, RotateCcw } from "lucide-react"
+import { Settings, Save, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 import { Slider } from "@/components/ui/slider"
 import {
   Select,
@@ -41,8 +40,6 @@ interface CameraSettings {
   name: string
   streamUrl: string
   type: string
-  recordingEnabled: boolean
-  alertsEnabled: boolean
   analysisInterval: number
   qualitySettings: {
     resolution: string
@@ -56,7 +53,6 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
   const [settings, setSettings] = useState<CameraSettings | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [recordingStatus, setRecordingStatus] = useState<'idle' | 'starting' | 'stopping' | 'recording'>('idle')
   const [streamNeedsRestart, setStreamNeedsRestart] = useState(false)
   const { toast } = useToast()
 
@@ -70,7 +66,6 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
       console.log('[CAMERA_SETTINGS_DIALOG] Dialog closed, resetting settings')
       setOriginalSettings(null)
       setSettings(null)
-      setRecordingStatus('idle')
       setStreamNeedsRestart(false)
     }
   }, [open, camera])
@@ -86,13 +81,11 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
       setLoading(true)
       const response = await getCameraSettings(camera._id)
       console.log('[CAMERA_SETTINGS_DIALOG] Settings loaded:', response.settings)
-      
+
       // Store both original and current settings
       setOriginalSettings(response.settings)
       setSettings(response.settings)
 
-      // Set initial recording status based on settings
-      setRecordingStatus(response.settings.recordingEnabled ? 'recording' : 'idle')
     } catch (error) {
       console.error('[CAMERA_SETTINGS_DIALOG] Error loading settings:', error)
 
@@ -102,9 +95,7 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
         name: camera.name,
         streamUrl: camera.streamUrl,
         type: camera.type,
-        recordingEnabled: false,
-        alertsEnabled: true,
-        analysisInterval: 2,
+        analysisInterval: 30,
         qualitySettings: {
           resolution: '1920x1080',
           frameRate: 30,
@@ -113,7 +104,6 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
       }
       setOriginalSettings(defaultSettings)
       setSettings(defaultSettings)
-      setRecordingStatus('idle')
 
       toast({
         title: "Warning",
@@ -125,6 +115,24 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
     }
   }
 
+  const updateAnalysisInterval = (newInterval: number) => {
+    if (!settings || !camera) return
+
+    // Enforce minimum 6 seconds
+    const enforcedInterval = Math.max(6, newInterval);
+    console.log('[CAMERA_SETTINGS_DIALOG] Updating analysis interval to:', enforcedInterval, 'seconds (minimum 6s enforced)')
+
+    // Update settings immediately in UI
+    const updatedSettings = {
+      ...settings,
+      analysisInterval: enforcedInterval
+    }
+    setSettings(updatedSettings)
+
+    // DO NOT save immediately or show toast - only update UI
+    console.log('[CAMERA_SETTINGS_DIALOG] Analysis interval updated in UI only - will save when user clicks Save Settings')
+  }
+
   const saveSettings = async () => {
     if (!camera || !settings) {
       console.log('[CAMERA_SETTINGS_DIALOG] Cannot save - missing camera or settings')
@@ -132,8 +140,50 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
     }
 
     try {
-      console.log('[CAMERA_SETTINGS_DIALOG] Saving settings for camera:', camera._id, 'settings:', settings)
+      console.log('[CAMERA_SETTINGS_DIALOG] ===== SAVE SETTINGS START =====');
+      console.log('[CAMERA_SETTINGS_DIALOG] Saving settings for camera:', camera._id);
+      console.log('[CAMERA_SETTINGS_DIALOG] Camera name:', camera.name);
       setSaving(true)
+
+      let analysisWasStopped = false;
+
+      // CRITICAL: Try to stop active analysis using direct function call
+      console.log('[CAMERA_SETTINGS_DIALOG] ===== CHECKING FOR ACTIVE ANALYSIS =====');
+      console.log('[CAMERA_SETTINGS_DIALOG] Looking for global stop function...');
+      
+      const stopActiveAnalysis = (window as any).stopActiveAnalysis;
+      console.log('[CAMERA_SETTINGS_DIALOG] Stop function available:', !!stopActiveAnalysis);
+      console.log('[CAMERA_SETTINGS_DIALOG] Stop function type:', typeof stopActiveAnalysis);
+
+      if (stopActiveAnalysis && typeof stopActiveAnalysis === 'function') {
+        console.log('[CAMERA_SETTINGS_DIALOG] ===== CALLING DIRECT STOP FUNCTION =====');
+        console.log('[CAMERA_SETTINGS_DIALOG] Calling stop function for camera:', camera._id);
+
+        try {
+          const stopResult = await stopActiveAnalysis(camera._id);
+          console.log('[CAMERA_SETTINGS_DIALOG] Stop function result:', stopResult);
+
+          if (stopResult.success) {
+            analysisWasStopped = true;
+            console.log('[CAMERA_SETTINGS_DIALOG] Analysis stopped successfully via direct call');
+          } else {
+            console.log('[CAMERA_SETTINGS_DIALOG] Stop function returned failure:', stopResult.error);
+          }
+        } catch (stopError) {
+          console.error('[CAMERA_SETTINGS_DIALOG] Error calling stop function:', stopError);
+          toast({
+            title: "Warning",
+            description: "Could not stop active analysis. Settings will still be saved.",
+            variant: "destructive",
+          });
+        }
+      } else {
+        console.log('[CAMERA_SETTINGS_DIALOG] ===== NO ACTIVE ANALYSIS DETECTED =====');
+        console.log('[CAMERA_SETTINGS_DIALOG] No stop function available - no active analysis');
+      }
+
+      console.log('[CAMERA_SETTINGS_DIALOG] ===== PROCEEDING WITH SETTINGS SAVE =====');
+      console.log('[CAMERA_SETTINGS_DIALOG] Analysis was stopped:', analysisWasStopped);
 
       // Update camera basic info if name changed
       if (settings.name !== camera.name) {
@@ -142,16 +192,26 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
       }
 
       // Update camera settings
+      console.log('[CAMERA_SETTINGS_DIALOG] Updating camera settings...');
       await updateCameraSettings(camera._id, settings)
-      console.log('[CAMERA_SETTINGS_DIALOG] Settings saved successfully')
 
       // Update original settings to reflect saved state
       setOriginalSettings({ ...settings })
 
-      toast({
-        title: "Success",
-        description: "Camera settings updated successfully",
-      })
+      // Show appropriate success message
+      if (analysisWasStopped) {
+        console.log('[CAMERA_SETTINGS_DIALOG] Showing analysis stopped message');
+        toast({
+          title: "Analysis Stopped",
+          description: "Analysis stopped. Changes saved successfully. Please start analysis again.",
+          duration: 5000,
+        });
+      } else {
+        toast({
+          title: "Success",
+          description: "Camera settings updated successfully",
+        });
+      }
 
       // Show stream restart notification if needed
       if (streamNeedsRestart) {
@@ -162,10 +222,17 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
         setStreamNeedsRestart(false)
       }
 
-      // Refresh parent component to show updated camera name
+      // Refresh parent component
       if (onCameraUpdated) {
-        console.log('[CAMERA_SETTINGS_DIALOG] Calling onCameraUpdated callback')
         onCameraUpdated()
+      }
+
+      // Trigger global camera refresh notification
+      if ((window as any).notifyAllComponentsCameraUpdate) {
+        (window as any).notifyAllComponentsCameraUpdate(camera._id, {
+          ...settings,
+          analysisWasStopped
+        });
       }
 
       onOpenChange(false)
@@ -185,7 +252,6 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
     console.log('[CAMERA_SETTINGS_DIALOG] Canceling settings changes')
     if (originalSettings) {
       setSettings({ ...originalSettings })
-      setRecordingStatus(originalSettings.recordingEnabled ? 'recording' : 'idle')
       setStreamNeedsRestart(false)
       toast({
         title: "Changes Reverted",
@@ -193,146 +259,6 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
       })
     }
     onOpenChange(false)
-  }
-
-  const toggleRecording = async () => {
-    if (!camera || !settings) return
-
-    try {
-      console.log('[CAMERA_SETTINGS_DIALOG] Toggling recording for camera:', camera._id)
-      const newRecordingState = !settings.recordingEnabled
-
-      setRecordingStatus(newRecordingState ? 'starting' : 'stopping')
-
-      // Update settings immediately
-      const updatedSettings = {
-        ...settings,
-        recordingEnabled: newRecordingState
-      }
-      setSettings(updatedSettings)
-
-      // Save recording state immediately to backend
-      await updateCameraSettings(camera._id, { recordingEnabled: newRecordingState })
-
-      // Simulate recording start/stop delay
-      await new Promise(resolve => setTimeout(resolve, 1000))
-
-      setRecordingStatus(newRecordingState ? 'recording' : 'idle')
-
-      toast({
-        title: newRecordingState ? "Recording Started" : "Recording Stopped",
-        description: `Camera recording has been ${newRecordingState ? 'enabled' : 'disabled'}`,
-      })
-
-      console.log('[CAMERA_SETTINGS_DIALOG] Recording toggled successfully:', newRecordingState)
-    } catch (error) {
-      console.error('[CAMERA_SETTINGS_DIALOG] Error toggling recording:', error)
-      // Revert on error
-      setSettings(prev => prev ? { ...prev, recordingEnabled: !prev.recordingEnabled } : null)
-      setRecordingStatus(settings.recordingEnabled ? 'recording' : 'idle')
-      toast({
-        title: "Error",
-        description: "Failed to toggle recording",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const toggleAlerts = async () => {
-    if (!camera || !settings) return
-
-    try {
-      console.log('[CAMERA_SETTINGS_DIALOG] Toggling alerts for camera:', camera._id)
-      const newAlertsState = !settings.alertsEnabled
-
-      // Update settings immediately
-      const updatedSettings = {
-        ...settings,
-        alertsEnabled: newAlertsState
-      }
-      setSettings(updatedSettings)
-
-      // Save alerts state immediately to backend
-      await updateCameraSettings(camera._id, { alertsEnabled: newAlertsState })
-
-      if (newAlertsState) {
-        // Request notification permission if not already granted
-        if ('Notification' in window) {
-          if (Notification.permission === 'default') {
-            const permission = await Notification.requestPermission()
-            if (permission !== 'granted') {
-              toast({
-                title: "Notification Permission Required",
-                description: "Please enable notifications to receive alerts",
-                variant: "destructive",
-              })
-              return
-            }
-          }
-
-          // Show test notification
-          if (Notification.permission === 'granted') {
-            new Notification(`Camera Alerts Enabled`, {
-              body: `Alerts are now active for ${camera.name}`,
-              icon: '/favicon.ico'
-            })
-          }
-        }
-
-        toast({
-          title: "Alerts Enabled",
-          description: "You will receive notifications for camera events",
-        })
-      } else {
-        toast({
-          title: "Alerts Disabled",
-          description: "Camera notifications have been turned off",
-        })
-      }
-
-      console.log('[CAMERA_SETTINGS_DIALOG] Alerts toggled successfully:', newAlertsState)
-    } catch (error) {
-      console.error('[CAMERA_SETTINGS_DIALOG] Error toggling alerts:', error)
-      // Revert on error
-      setSettings(prev => prev ? { ...prev, alertsEnabled: !prev.alertsEnabled } : null)
-      toast({
-        title: "Error",
-        description: "Failed to toggle alerts",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const updateAnalysisInterval = async (newInterval: number) => {
-    if (!settings || !camera) return
-
-    console.log('[CAMERA_SETTINGS_DIALOG] Updating analysis interval to:', newInterval)
-    
-    try {
-      // Update settings immediately
-      const updatedSettings = {
-        ...settings,
-        analysisInterval: newInterval
-      }
-      setSettings(updatedSettings)
-
-      // Save interval immediately to backend
-      await updateCameraSettings(camera._id, { analysisInterval: newInterval })
-
-      toast({
-        title: "Analysis Interval Updated",
-        description: `Analysis will now run every ${newInterval} seconds`,
-      })
-    } catch (error) {
-      console.error('[CAMERA_SETTINGS_DIALOG] Error updating analysis interval:', error)
-      // Revert on error
-      setSettings(prev => prev ? { ...prev, analysisInterval: prev.analysisInterval } : null)
-      toast({
-        title: "Error",
-        description: "Failed to update analysis interval",
-        variant: "destructive",
-      })
-    }
   }
 
   const updateSetting = (key: string, value: any) => {
@@ -378,7 +304,6 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
   console.log('[CAMERA_SETTINGS_DIALOG] Current state:', {
     loading,
     saving,
-    recordingStatus,
     hasSettings: !!settings,
     hasUnsavedChanges: hasUnsavedChanges(),
     streamNeedsRestart
@@ -398,7 +323,7 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
             )}
           </DialogTitle>
           <DialogDescription>
-            Configure recording, detection, and quality settings for this camera
+            Configure detection and quality settings for this camera
           </DialogDescription>
         </DialogHeader>
 
@@ -409,10 +334,9 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
           </div>
         ) : settings ? (
           <Tabs defaultValue="general" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="general">General</TabsTrigger>
               <TabsTrigger value="detection">Detection</TabsTrigger>
-              <TabsTrigger value="quality">Quality</TabsTrigger>
             </TabsList>
 
             <TabsContent value="general" className="space-y-4 mt-4">
@@ -434,175 +358,75 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
                 <Input
                   id="streamUrl"
                   value={settings.streamUrl}
-                  onChange={(e) => updateSetting('streamUrl', e.target.value)}
-                  placeholder="Enter stream URL"
-                  disabled={settings.type === 'usb'}
+                  readOnly
+                  className="bg-slate-50 dark:bg-slate-700"
+                  placeholder="Stream URL is read-only"
                 />
-                {settings.type === 'usb' && (
-                  <p className="text-xs text-slate-500">
-                    USB camera stream URL is automatically managed
-                  </p>
-                )}
+                <p className="text-xs text-slate-500">
+                  Stream URL cannot be modified after camera creation
+                </p>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="type">Camera Type</Label>
-                <Select value={settings.type} onValueChange={(value) => updateSetting('type', value)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="rtsp">RTSP Stream</SelectItem>
-                    <SelectItem value="http">HTTP Stream</SelectItem>
-                    <SelectItem value="ip">IP Camera</SelectItem>
-                    <SelectItem value="usb">USB Camera</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="space-y-0.5">
-                  <Label>Recording Status</Label>
-                  <p className="text-sm text-slate-500">
-                    {recordingStatus === 'recording' && 'Camera is currently recording'}
-                    {recordingStatus === 'starting' && 'Starting recording...'}
-                    {recordingStatus === 'stopping' && 'Stopping recording...'}
-                    {recordingStatus === 'idle' && 'Recording is disabled'}
-                  </p>
-                </div>
-                <Button
-                  onClick={toggleRecording}
-                  disabled={recordingStatus === 'starting' || recordingStatus === 'stopping'}
-                  variant={recordingStatus === 'recording' ? 'destructive' : 'default'}
-                >
-                  {recordingStatus === 'starting' && (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Starting...
-                    </>
-                  )}
-                  {recordingStatus === 'stopping' && (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Stopping...
-                    </>
-                  )}
-                  {recordingStatus === 'recording' && 'Stop Recording'}
-                  {recordingStatus === 'idle' && 'Start Recording'}
-                </Button>
+                {camera ? (
+                  // For existing cameras, show type as read-only
+                  <div className="flex items-center space-x-2">
+                    <div className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md text-sm">
+                      {settings.type === 'rtsp' ? 'RTSP Stream' : 
+                       settings.type === 'http' ? 'HTTP Stream' :
+                       settings.type === 'ip' ? 'IP Camera' :
+                       settings.type === 'usb' ? 'USB Camera' : 
+                       settings.type}
+                    </div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center">
+                      <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-1"></span>
+                      Locked
+                    </div>
+                  </div>
+                ) : (
+                  // For new cameras (shouldn't happen in settings dialog), show dropdown
+                  <Select value={settings.type} onValueChange={(value) => updateSetting('type', value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="rtsp">RTSP Stream</SelectItem>
+                      <SelectItem value="http">HTTP Stream</SelectItem>
+                      <SelectItem value="ip">IP Camera</SelectItem>
+                      <SelectItem value="usb">USB Camera</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+                <p className="text-xs text-slate-500">
+                  {camera ? 
+                    "Camera type cannot be modified after successful setup to prevent configuration mismatches" :
+                    "Select the type of camera you are connecting"
+                  }
+                </p>
               </div>
             </TabsContent>
 
             <TabsContent value="detection" className="space-y-4 mt-4">
-              <div className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="space-y-0.5">
-                  <Label>Smart Alerts</Label>
-                  <p className="text-sm text-slate-500">
-                    Receive browser notifications for camera events and detections
-                  </p>
-                </div>
-                <Switch
-                  checked={settings.alertsEnabled}
-                  onCheckedChange={toggleAlerts}
-                />
-              </div>
-
               <div className="space-y-3">
                 <Label>Analysis Interval</Label>
                 <div className="px-3">
                   <Slider
                     value={[settings.analysisInterval]}
                     onValueChange={(value) => updateAnalysisInterval(value[0])}
-                    max={30}
-                    min={1}
+                    max={120}
+                    min={6}
                     step={1}
                     className="w-full"
                   />
                   <div className="flex justify-between text-sm text-slate-500 mt-1">
-                    <span>1s (Real-time)</span>
+                    <span>6s (Minimum)</span>
                     <span className="font-medium">{settings.analysisInterval}s</span>
-                    <span>30s (Battery Saver)</span>
+                    <span>120s (Maximum)</span>
                   </div>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Changes are applied immediately. Lower intervals provide more responsive analysis but use more resources.
-                </p>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="quality" className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <Label>Resolution</Label>
-                <Select
-                  value={settings.qualitySettings.resolution}
-                  onValueChange={(value) => updateSetting('qualitySettings.resolution', value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="640x480">640x480 (VGA) - Low bandwidth</SelectItem>
-                    <SelectItem value="1280x720">1280x720 (HD) - Balanced</SelectItem>
-                    <SelectItem value="1920x1080">1920x1080 (Full HD) - High quality</SelectItem>
-                    <SelectItem value="2560x1440">2560x1440 (2K) - Very high quality</SelectItem>
-                    <SelectItem value="3840x2160">3840x2160 (4K) - Maximum quality</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Frame Rate</Label>
-                <div className="px-3">
-                  <Slider
-                    value={[settings.qualitySettings.frameRate]}
-                    onValueChange={(value) => updateSetting('qualitySettings.frameRate', value[0])}
-                    max={60}
-                    min={1}
-                    step={1}
-                    className="w-full"
-                  />
-                  <div className="flex justify-between text-sm text-slate-500 mt-1">
-                    <span>1 FPS (Slideshow)</span>
-                    <span className="font-medium">{settings.qualitySettings.frameRate} FPS</span>
-                    <span>60 FPS (Smooth)</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Bitrate</Label>
-                <Select
-                  value={settings.qualitySettings.bitrate}
-                  onValueChange={(value) => updateSetting('qualitySettings.bitrate', value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="500kbps">500 kbps (Low) - Mobile friendly</SelectItem>
-                    <SelectItem value="1000kbps">1 Mbps (Medium) - Balanced</SelectItem>
-                    <SelectItem value="2000kbps">2 Mbps (High) - Good quality</SelectItem>
-                    <SelectItem value="5000kbps">5 Mbps (Very High) - Excellent quality</SelectItem>
-                    <SelectItem value="10000kbps">10 Mbps (Ultra) - Maximum quality</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {streamNeedsRestart && (
-                <div className="bg-orange-50 dark:bg-orange-900/20 p-3 rounded-lg border border-orange-200 dark:border-orange-800">
-                  <div className="flex items-center gap-2">
-                    <RotateCcw className="h-4 w-4 text-orange-600" />
-                    <p className="text-sm text-orange-700 dark:text-orange-300">
-                      <strong>Stream Restart Required:</strong> Quality changes will take effect after saving and restarting the stream.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
-                <p className="text-sm text-blue-700 dark:text-blue-300">
-                  <strong>Note:</strong> Quality changes require saving and may need a stream restart to take effect.
-                  Higher settings require more bandwidth and processing power.
+                  Analysis interval will be applied after clicking "Save Settings". Minimum 6 seconds required.
                 </p>
               </div>
             </TabsContent>
@@ -617,15 +441,15 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
         )}
 
         <DialogFooter>
-          <Button 
-            variant="outline" 
-            onClick={cancelSettings} 
+          <Button
+            variant="outline"
+            onClick={cancelSettings}
             disabled={saving}
           >
             Cancel
           </Button>
-          <Button 
-            onClick={saveSettings} 
+          <Button
+            onClick={saveSettings}
             disabled={loading || saving || !settings || !hasUnsavedChanges()}
           >
             {saving ? (

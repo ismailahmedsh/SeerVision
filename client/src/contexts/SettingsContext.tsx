@@ -44,6 +44,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true)
       const response = await getSettings()
+      
+      // Ensure analysis interval meets minimum requirement
+      if (response.settings.analysis.defaultInterval < 6) {
+        console.log('[SETTINGS_CONTEXT] Adjusting analysis interval from', response.settings.analysis.defaultInterval, 'to 6 seconds (minimum)')
+        response.settings.analysis.defaultInterval = 6
+      }
+      
       setSettings(response.settings)
     } catch (error) {
       console.error("Error loading settings:", error)
@@ -58,6 +65,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const updateSetting = (section: keyof SettingsData, key: string, value: any) => {
     if (!settings) return
+    
+    // Enforce minimum analysis interval
+    if (section === 'analysis' && key === 'defaultInterval' && value < 6) {
+      console.log('[SETTINGS_CONTEXT] Enforcing minimum analysis interval of 6 seconds, got:', value)
+      value = 6
+    }
+    
     setSettings({
       ...settings,
       [section]: {

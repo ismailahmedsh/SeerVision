@@ -44,12 +44,21 @@ class Camera {
   static async findAll(userId) {
     return new Promise((resolve, reject) => {
       try {
+        console.log('[CAMERA_MODEL] ===== FIND ALL CAMERAS START =====');
+        console.log('[CAMERA_MODEL] Model method called at:', new Date().toISOString());
+        console.log('[CAMERA_MODEL] Finding all cameras for user:', userId);
+        console.log('[CAMERA_MODEL] User ID type:', typeof userId);
+        console.log('[CAMERA_MODEL] User ID value:', userId);
+
         const db = getDb();
         if (!db) {
+          console.error('[CAMERA_MODEL] Database connection is not available');
+          console.error('[CAMERA_MODEL] getDb() returned:', db);
           throw new Error('Database connection is not available');
         }
 
-        console.log('[CAMERA_MODEL] Finding all cameras for user:', userId);
+        console.log('[CAMERA_MODEL] Database connection available');
+        console.log('[CAMERA_MODEL] Database object type:', typeof db);
 
         const query = `
           SELECT id as _id, name, type, streamUrl, status, lastSeen,
@@ -60,19 +69,54 @@ class Camera {
           ORDER BY createdAt DESC
         `;
 
+        console.log('[CAMERA_MODEL] Executing query:', query);
+        console.log('[CAMERA_MODEL] Query parameters:', [userId]);
+
         db.all(query, [userId], (err, rows) => {
           if (err) {
-            console.error('[CAMERA_MODEL] Error finding cameras:', err.message);
-            console.error('[CAMERA_MODEL] Error stack:', err.stack);
+            console.error('[CAMERA_MODEL] ===== FIND ALL CAMERAS DATABASE ERROR =====');
+            console.error('[CAMERA_MODEL] Database error timestamp:', new Date().toISOString());
+            console.error('[CAMERA_MODEL] Database error type:', err.constructor.name);
+            console.error('[CAMERA_MODEL] Database error message:', err.message);
+            console.error('[CAMERA_MODEL] Database error code:', err.code);
+            console.error('[CAMERA_MODEL] Database error stack:', err.stack);
+            console.error('[CAMERA_MODEL] Full error object:', err);
             reject(err);
           } else {
-            console.log('[CAMERA_MODEL] Found cameras:', rows.length);
-            resolve(rows);
+            console.log('[CAMERA_MODEL] ===== FIND ALL CAMERAS DATABASE SUCCESS =====');
+            console.log('[CAMERA_MODEL] Query executed successfully at:', new Date().toISOString());
+            console.log('[CAMERA_MODEL] Raw rows type:', typeof rows);
+            console.log('[CAMERA_MODEL] Raw rows is array:', Array.isArray(rows));
+            console.log('[CAMERA_MODEL] Number of rows returned:', rows?.length || 0);
+            console.log('[CAMERA_MODEL] Raw rows from database:', JSON.stringify(rows, null, 2));
+
+            if (rows && rows.length > 0) {
+              console.log('[CAMERA_MODEL] Processing database rows...');
+              rows.forEach((row, index) => {
+                console.log(`[CAMERA_MODEL] Row ${index}:`, {
+                  id: row._id,
+                  name: row.name,
+                  type: row.type,
+                  streamUrl: row.streamUrl,
+                  status: row.status,
+                  analysisInterval: row.analysisInterval
+                });
+              });
+            } else {
+              console.log('[CAMERA_MODEL] No rows returned from database');
+            }
+
+            console.log('[CAMERA_MODEL] ===== FIND ALL CAMERAS SUCCESS =====');
+            resolve(rows || []);
           }
         });
       } catch (error) {
-        console.error('[CAMERA_MODEL] CRITICAL ERROR in findAll:', error.message);
-        console.error('[CAMERA_MODEL] Error stack:', error.stack);
+        console.error('[CAMERA_MODEL] ===== FIND ALL CAMERAS CRITICAL ERROR =====');
+        console.error('[CAMERA_MODEL] Critical error timestamp:', new Date().toISOString());
+        console.error('[CAMERA_MODEL] Critical error in findAll:', error.message);
+        console.error('[CAMERA_MODEL] Critical error type:', error.constructor.name);
+        console.error('[CAMERA_MODEL] Critical error stack:', error.stack);
+        console.error('[CAMERA_MODEL] Critical error details:', error);
         reject(error);
       }
     });
