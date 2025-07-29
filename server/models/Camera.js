@@ -11,8 +11,6 @@ class Camera {
 
         const { name, type, streamUrl, userId } = cameraData;
 
-        console.log('[CAMERA_MODEL] Creating camera:', { name, type, streamUrl, userId });
-
         const query = `
           INSERT INTO cameras (name, type, streamUrl, userId, status, lastSeen, createdAt, updatedAt)
           VALUES (?, ?, ?, ?, 'connected', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -20,22 +18,19 @@ class Camera {
 
         db.run(query, [name, type, streamUrl, userId], function(err) {
           if (err) {
-            console.error('[CAMERA_MODEL] Error creating camera:', err.message);
-            console.error('[CAMERA_MODEL] Error stack:', err.stack);
+            console.error('Error creating camera:', err.message);
             reject(err);
           } else {
-            console.log('[CAMERA_MODEL] Camera created with ID:', this.lastID);
             Camera.findById(this.lastID)
               .then(camera => resolve(camera))
               .catch(findErr => {
-                console.error('[CAMERA_MODEL] Error finding created camera:', findErr);
+                console.error('Error finding created camera:', findErr);
                 reject(findErr);
               });
           }
         });
       } catch (error) {
-        console.error('[CAMERA_MODEL] CRITICAL ERROR in create:', error.message);
-        console.error('[CAMERA_MODEL] Error stack:', error.stack);
+        console.error('Error in create:', error.message);
         reject(error);
       }
     });
@@ -44,21 +39,10 @@ class Camera {
   static async findAll(userId) {
     return new Promise((resolve, reject) => {
       try {
-        console.log('[CAMERA_MODEL] ===== FIND ALL CAMERAS START =====');
-        console.log('[CAMERA_MODEL] Model method called at:', new Date().toISOString());
-        console.log('[CAMERA_MODEL] Finding all cameras for user:', userId);
-        console.log('[CAMERA_MODEL] User ID type:', typeof userId);
-        console.log('[CAMERA_MODEL] User ID value:', userId);
-
         const db = getDb();
         if (!db) {
-          console.error('[CAMERA_MODEL] Database connection is not available');
-          console.error('[CAMERA_MODEL] getDb() returned:', db);
           throw new Error('Database connection is not available');
         }
-
-        console.log('[CAMERA_MODEL] Database connection available');
-        console.log('[CAMERA_MODEL] Database object type:', typeof db);
 
         const query = `
           SELECT id as _id, name, type, streamUrl, status, lastSeen,
@@ -69,54 +53,16 @@ class Camera {
           ORDER BY createdAt DESC
         `;
 
-        console.log('[CAMERA_MODEL] Executing query:', query);
-        console.log('[CAMERA_MODEL] Query parameters:', [userId]);
-
         db.all(query, [userId], (err, rows) => {
           if (err) {
-            console.error('[CAMERA_MODEL] ===== FIND ALL CAMERAS DATABASE ERROR =====');
-            console.error('[CAMERA_MODEL] Database error timestamp:', new Date().toISOString());
-            console.error('[CAMERA_MODEL] Database error type:', err.constructor.name);
-            console.error('[CAMERA_MODEL] Database error message:', err.message);
-            console.error('[CAMERA_MODEL] Database error code:', err.code);
-            console.error('[CAMERA_MODEL] Database error stack:', err.stack);
-            console.error('[CAMERA_MODEL] Full error object:', err);
+            console.error('Database error:', err.message);
             reject(err);
           } else {
-            console.log('[CAMERA_MODEL] ===== FIND ALL CAMERAS DATABASE SUCCESS =====');
-            console.log('[CAMERA_MODEL] Query executed successfully at:', new Date().toISOString());
-            console.log('[CAMERA_MODEL] Raw rows type:', typeof rows);
-            console.log('[CAMERA_MODEL] Raw rows is array:', Array.isArray(rows));
-            console.log('[CAMERA_MODEL] Number of rows returned:', rows?.length || 0);
-            console.log('[CAMERA_MODEL] Raw rows from database:', JSON.stringify(rows, null, 2));
-
-            if (rows && rows.length > 0) {
-              console.log('[CAMERA_MODEL] Processing database rows...');
-              rows.forEach((row, index) => {
-                console.log(`[CAMERA_MODEL] Row ${index}:`, {
-                  id: row._id,
-                  name: row.name,
-                  type: row.type,
-                  streamUrl: row.streamUrl,
-                  status: row.status,
-                  analysisInterval: row.analysisInterval
-                });
-              });
-            } else {
-              console.log('[CAMERA_MODEL] No rows returned from database');
-            }
-
-            console.log('[CAMERA_MODEL] ===== FIND ALL CAMERAS SUCCESS =====');
             resolve(rows || []);
           }
         });
       } catch (error) {
-        console.error('[CAMERA_MODEL] ===== FIND ALL CAMERAS CRITICAL ERROR =====');
-        console.error('[CAMERA_MODEL] Critical error timestamp:', new Date().toISOString());
-        console.error('[CAMERA_MODEL] Critical error in findAll:', error.message);
-        console.error('[CAMERA_MODEL] Critical error type:', error.constructor.name);
-        console.error('[CAMERA_MODEL] Critical error stack:', error.stack);
-        console.error('[CAMERA_MODEL] Critical error details:', error);
+        console.error('Error in findAll:', error.message);
         reject(error);
       }
     });
@@ -129,8 +75,6 @@ class Camera {
         if (!db) {
           throw new Error('Database connection is not available');
         }
-
-        console.log('[CAMERA_MODEL] Finding camera by ID:', id, 'for user:', userId);
 
         let query = `
           SELECT id as _id, name, type, streamUrl, status, lastSeen,
@@ -148,17 +92,14 @@ class Camera {
 
         db.get(query, params, (err, row) => {
           if (err) {
-            console.error('[CAMERA_MODEL] Error finding camera:', err.message);
-            console.error('[CAMERA_MODEL] Error stack:', err.stack);
+            console.error('Error finding camera:', err.message);
             reject(err);
           } else {
-            console.log('[CAMERA_MODEL] Found camera:', row ? 'Yes' : 'No');
             resolve(row);
           }
         });
       } catch (error) {
-        console.error('[CAMERA_MODEL] CRITICAL ERROR in findById:', error.message);
-        console.error('[CAMERA_MODEL] Error stack:', error.stack);
+        console.error('Error in findById:', error.message);
         reject(error);
       }
     });
@@ -171,8 +112,6 @@ class Camera {
         if (!db) {
           throw new Error('Database connection is not available');
         }
-
-        console.log('[CAMERA_MODEL] Updating camera:', id, 'with data:', updateData);
 
         const allowedFields = ['name', 'type', 'streamUrl', 'status', 'recordingEnabled',
                              'motionDetection', 'alertsEnabled', 'analysisInterval',
@@ -203,25 +142,21 @@ class Camera {
 
         db.run(query, values, function(err) {
           if (err) {
-            console.error('[CAMERA_MODEL] Error updating camera:', err.message);
-            console.error('[CAMERA_MODEL] Error stack:', err.stack);
+            console.error('Error updating camera:', err.message);
             reject(err);
           } else if (this.changes === 0) {
-            console.log('[CAMERA_MODEL] No camera found to update');
             reject(new Error('Camera not found or access denied'));
           } else {
-            console.log('[CAMERA_MODEL] Camera updated successfully');
             Camera.findById(id, userId)
               .then(camera => resolve(camera))
               .catch(findErr => {
-                console.error('[CAMERA_MODEL] Error finding updated camera:', findErr);
+                console.error('Error finding updated camera:', findErr);
                 reject(findErr);
               });
           }
         });
       } catch (error) {
-        console.error('[CAMERA_MODEL] CRITICAL ERROR in update:', error.message);
-        console.error('[CAMERA_MODEL] Error stack:', error.stack);
+        console.error('Error in update:', error.message);
         reject(error);
       }
     });
@@ -235,26 +170,20 @@ class Camera {
           throw new Error('Database connection is not available');
         }
 
-        console.log('[CAMERA_MODEL] Deleting camera:', id, 'for user:', userId);
-
         const query = 'DELETE FROM cameras WHERE id = ? AND userId = ?';
 
         db.run(query, [id, userId], function(err) {
           if (err) {
-            console.error('[CAMERA_MODEL] Error deleting camera:', err.message);
-            console.error('[CAMERA_MODEL] Error stack:', err.stack);
+            console.error('Error deleting camera:', err.message);
             reject(err);
           } else if (this.changes === 0) {
-            console.log('[CAMERA_MODEL] No camera found to delete');
             reject(new Error('Camera not found or access denied'));
           } else {
-            console.log('[CAMERA_MODEL] Camera deleted successfully');
             resolve({ success: true, deletedId: id });
           }
         });
       } catch (error) {
-        console.error('[CAMERA_MODEL] CRITICAL ERROR in delete:', error.message);
-        console.error('[CAMERA_MODEL] Error stack:', error.stack);
+        console.error('Error in delete:', error.message);
         reject(error);
       }
     });
@@ -268,8 +197,6 @@ class Camera {
           throw new Error('Database connection is not available');
         }
 
-        console.log('[CAMERA_MODEL] Updating camera status:', id, 'to:', status);
-
         const query = `
           UPDATE cameras
           SET status = ?, lastSeen = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP
@@ -278,17 +205,14 @@ class Camera {
 
         db.run(query, [status, id], function(err) {
           if (err) {
-            console.error('[CAMERA_MODEL] Error updating camera status:', err.message);
-            console.error('[CAMERA_MODEL] Error stack:', err.stack);
+            console.error('Error updating camera status:', err.message);
             reject(err);
           } else {
-            console.log('[CAMERA_MODEL] Camera status updated');
             resolve({ success: true });
           }
         });
       } catch (error) {
-        console.error('[CAMERA_MODEL] CRITICAL ERROR in updateStatus:', error.message);
-        console.error('[CAMERA_MODEL] Error stack:', error.stack);
+        console.error('Error in updateStatus:', error.message);
         reject(error);
       }
     });

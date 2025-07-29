@@ -1,4 +1,3 @@
-
 import { Bell, LogOut } from "lucide-react"
 import { Button } from "./ui/button"
 import { ThemeToggle } from "./ui/theme-toggle"
