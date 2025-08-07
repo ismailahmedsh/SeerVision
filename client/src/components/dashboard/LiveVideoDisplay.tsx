@@ -32,12 +32,10 @@ export function LiveVideoDisplay({ selectedCameraId, onCameraChange, onCameraUpd
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
 
-  // Load cameras on mount
   useEffect(() => {
     loadCameras()
   }, [])
 
-  // Update selected camera when selectedCameraId changes
   useEffect(() => {
     if (selectedCameraId && cameras.length > 0) {
       const camera = cameras.find(c => c._id === selectedCameraId)
@@ -45,7 +43,6 @@ export function LiveVideoDisplay({ selectedCameraId, onCameraChange, onCameraUpd
     }
   }, [selectedCameraId, cameras])
 
-  // Start streaming when camera is selected
   useEffect(() => {
     if (selectedCamera) {
       startStream()
@@ -87,9 +84,8 @@ export function LiveVideoDisplay({ selectedCameraId, onCameraChange, onCameraUpd
       setIsStreaming(true)
 
       if (selectedCamera.type === 'usb' || selectedCamera.streamUrl.startsWith('usb:')) {
-        // Handle USB camera
         const deviceId = selectedCamera.streamUrl.replace('usb:', '')
-        
+
         const constraints = {
           video: deviceId === 'default' ? true : { deviceId: { exact: deviceId } },
           audio: false
@@ -100,7 +96,6 @@ export function LiveVideoDisplay({ selectedCameraId, onCameraChange, onCameraUpd
         videoRef.current.srcObject = stream
         await videoRef.current.play()
       } else {
-        // Handle network camera (RTSP/HTTP)
         videoRef.current.src = selectedCamera.streamUrl
         await videoRef.current.play()
       }
@@ -147,27 +142,16 @@ export function LiveVideoDisplay({ selectedCameraId, onCameraChange, onCameraUpd
   return (
     <Card className="h-full flex flex-col">
       <CardHeader className="flex-shrink-0 pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <CameraIcon className="w-5 h-5" />
-            Live Video Feed
-          </CardTitle>
-          {selectedCamera && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setSettingsOpen(true)}
-            >
-              <Settings className="w-4 h-4 mr-2" />
-              Settings
-            </Button>
-          )}
-        </div>
+        <CardTitle className="flex items-center gap-2">
+          <CameraIcon className="w-5 h-5" />
+          Live Video Feed
+        </CardTitle>
       </CardHeader>
 
       <CardContent className="flex-1 flex flex-col min-h-0 p-4 pt-0">
-        {/* Camera Selection */}
-        <div className="flex items-center gap-4 mb-4">
+        {/* Camera Selection Row */}
+        <div className="flex items-center gap-3 mb-4">
+          {/* Camera Dropdown */}
           <div className="flex-1">
             <Select
               value={selectedCamera?._id || ""}
@@ -192,6 +176,19 @@ export function LiveVideoDisplay({ selectedCameraId, onCameraChange, onCameraUpd
             </Select>
           </div>
 
+          {/* Settings Button - Only show when camera is selected */}
+          {selectedCamera && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSettingsOpen(true)}
+              className="h-9 w-9 p-0"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+          )}
+
+          {/* Camera Status Badge - Only show when camera is selected */}
           {selectedCamera && (
             <Badge variant={selectedCamera.status === 'connected' ? 'default' : 'secondary'}>
               {selectedCamera.status}
@@ -199,7 +196,7 @@ export function LiveVideoDisplay({ selectedCameraId, onCameraChange, onCameraUpd
           )}
         </div>
 
-        {/* Video Container - Fixed height and responsive */}
+        {/* Video Container */}
         <div className="flex-1 min-h-0 bg-black rounded-lg overflow-hidden relative">
           {selectedCamera ? (
             <video
