@@ -1,57 +1,60 @@
-import { ReactNode, useState } from "react"
+import { useState } from "react"
 import { DashboardHeader } from "./DashboardHeader"
-import { Sidebar } from "./Sidebar"
 import { DashboardFooter } from "./DashboardFooter"
+import { Sidebar } from "./Sidebar"
 import { useMobile } from "@/hooks/useMobile"
 
 interface DashboardLayoutProps {
-  children: ReactNode
+  children: React.ReactNode
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
+  const [sidebarOpen, setSidebarOpen] = useState(true) // Default to open on desktop
   const isMobile = useMobile()
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-
-  const toggleSidebar = () => {
-    console.log('[DASHBOARD_LAYOUT] Toggling sidebar from:', sidebarOpen, 'to:', !sidebarOpen)
-    setSidebarOpen(!sidebarOpen)
-  }
-
-  const closeSidebar = () => {
-    console.log('[DASHBOARD_LAYOUT] Closing sidebar')
-    setSidebarOpen(false)
-  }
-
-  const handleSidebarToggle = (isOpen: boolean) => {
-    console.log('[DASHBOARD_LAYOUT] Sidebar toggle from child - setting to:', isOpen)
-    setSidebarOpen(isOpen)
-  }
-
-  console.log('[DASHBOARD_LAYOUT] Render state:', {
-    isMobile,
-    sidebarOpen,
-    shouldShowSidebar: !isMobile
-  })
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-900 dark:to-slate-800 flex flex-col">
-      <DashboardHeader />
+    <div className="min-h-screen bg-background">
+      {/* Mobile sidebar overlay */}
+      {isMobile && sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
 
-      <div className="flex flex-1 pt-16">
-        {!isMobile && (
-          <Sidebar
-            onClose={closeSidebar}
-            onToggle={handleSidebarToggle}
-            isOpen={sidebarOpen}
-          />
-        )}
+      {/* Sidebar - different behavior for mobile vs desktop */}
+      <div className={`
+        ${isMobile 
+          ? `fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`
+          : `fixed inset-y-0 left-0 z-30 transition-all duration-300 ease-in-out ${sidebarOpen ? 'w-64' : 'w-0'} overflow-hidden`
+        }
+      `}>
+        <Sidebar
+          isOpen={sidebarOpen}
+          onToggle={() => setSidebarOpen(!sidebarOpen)}
+          isMobile={isMobile}
+        />
+      </div>
 
-        <main className={`flex-1 ${!isMobile && sidebarOpen ? 'ml-64' : !isMobile ? 'ml-16' : ''} flex flex-col transition-all duration-300`}>
-          <div className="flex-1 p-6">
-            {children}
-          </div>
-          <DashboardFooter />
+      {/* Main content - adjusts based on sidebar state */}
+      <div className={`flex flex-col min-h-screen transition-all duration-300 ease-in-out ${
+        isMobile 
+          ? '' 
+          : sidebarOpen 
+            ? 'ml-64' 
+            : 'ml-0'
+      }`}>
+        <DashboardHeader
+          onMenuClick={() => setSidebarOpen(!sidebarOpen)}
+          showMenuButton={true}
+          sidebarOpen={sidebarOpen}
+        />
+
+        <main className="flex-1">
+          {children}
         </main>
+
+        <DashboardFooter />
       </div>
     </div>
   )

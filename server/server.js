@@ -64,11 +64,17 @@ app.use(cors({}));
 
 // Add request logging middleware
 app.use((req, res, next) => {
+  console.log(`[SERVER] ===== REQUEST START =====`);
   console.log(`[SERVER] ${new Date().toISOString()} - ${req.method} ${req.url}`);
   console.log(`[SERVER] Headers:`, req.headers);
   if (req.body && Object.keys(req.body).length > 0) {
-    console.log(`[SERVER] Body:`, req.body);
+    console.log(`[SERVER] Body keys:`, Object.keys(req.body));
+    console.log(`[SERVER] Body structure:`, {
+      hasFrameBase64: !!(req.body.frameBase64),
+      frameSize: req.body.frameBase64?.length || 0
+    });
   }
+  console.log(`[SERVER] ===== REQUEST END =====`);
   next();
 });
 
@@ -92,14 +98,40 @@ app.on("error", (error) => {
 
 // Add error handling for uncaught exceptions
 process.on('uncaughtException', (error) => {
-  console.error('[SERVER] UNCAUGHT EXCEPTION:', error);
-  console.error('[SERVER] Error stack:', error.stack);
-  process.exit(1);
+  console.error('[SERVER] ===== UNCAUGHT EXCEPTION =====');
+  console.error('[SERVER] Error:', error.message);
+  console.error('[SERVER] Stack:', error.stack);
+  console.error('[SERVER] Time:', new Date().toISOString());
+  console.error('[SERVER] ===== END UNCAUGHT EXCEPTION =====');
+  // Don't exit immediately, let other handlers run
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('[SERVER] UNHANDLED REJECTION at:', promise, 'reason:', reason);
-  process.exit(1);
+  console.error('[SERVER] ===== UNHANDLED REJECTION =====');
+  console.error('[SERVER] Reason:', reason);
+  console.error('[SERVER] Promise:', promise);
+  console.error('[SERVER] Time:', new Date().toISOString());
+  console.error('[SERVER] ===== END UNHANDLED REJECTION =====');
+  // Don't exit immediately, let other handlers run
+});
+
+// Enhanced global error handlers
+process.on('uncaughtException', (error) => {
+  console.error('[SERVER] ===== UNCAUGHT EXCEPTION =====');
+  console.error('[SERVER] Error:', error.message);
+  console.error('[SERVER] Stack:', error.stack);
+  console.error('[SERVER] Time:', new Date().toISOString());
+  console.error('[SERVER] ===== END UNCAUGHT EXCEPTION =====');
+  // Don't exit immediately, let other handlers run
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[SERVER] ===== UNHANDLED REJECTION =====');
+  console.error('[SERVER] Reason:', reason);
+  console.error('[SERVER] Promise:', promise);
+  console.error('[SERVER] Time:', new Date().toISOString());
+  console.error('[SERVER] ===== END UNHANDLED REJECTION =====');
+  // Don't exit immediately, let other handlers run
 });
 
 // Basic Routes
@@ -168,7 +200,7 @@ app.use((err, req, res, next) => {
 // Enhanced server startup with error handling
 try {
   console.log('[SERVER] Starting HTTP server...');
-  app.listen(port, () => {
+  const server = app.listen(port, () => {
     console.log(`[SERVER] Server running at http://localhost:${port}`);
     console.log(`[SERVER] Routes registered:`);
     console.log(`[SERVER] - Basic routes: /`);
@@ -177,6 +209,21 @@ try {
     console.log(`[SERVER] - Camera routes: /api/cameras`);
     console.log(`[SERVER] - Video analysis routes: /api/video-analysis`);
     console.log('[SERVER] Server startup complete!');
+  });
+
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(`[SERVER] CRITICAL ERROR: Port ${port} is already in use.`);
+      console.error(`[SERVER] Please stop any existing server on port ${port} or change the PORT in .env file.`);
+      console.error(`[SERVER] To find and kill the process using port ${port}:`);
+      console.error(`[SERVER] - Windows: netstat -ano | findstr :${port} then taskkill /PID <PID> /F`);
+      console.error(`[SERVER] - Linux/Mac: lsof -ti:${port} | xargs kill -9`);
+      process.exit(1);
+    } else {
+      console.error('[SERVER] CRITICAL ERROR starting server:', error);
+      console.error('[SERVER] Error stack:', error.stack);
+      process.exit(1);
+    }
   });
 } catch (error) {
   console.error('[SERVER] CRITICAL ERROR starting server:', error);

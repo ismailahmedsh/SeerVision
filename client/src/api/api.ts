@@ -67,9 +67,15 @@ api.interceptors.response.use(
         return api(originalRequest);
       } catch (refreshError) {
         console.error('[API] Token refresh failed:', refreshError);
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        window.location.href = '/login';
+        
+        // Check if refresh token is also expired
+        if (refreshError.response?.status === 403 || refreshError.response?.status === 401) {
+          console.log('[API] Refresh token expired, redirecting to login');
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+          window.location.href = '/login';
+        }
+        
         return Promise.reject(refreshError);
       }
     }

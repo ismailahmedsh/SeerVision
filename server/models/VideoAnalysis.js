@@ -9,16 +9,16 @@ class VideoAnalysis {
           throw new Error('Database connection is not available');
         }
 
-        const { streamId, cameraId, userId, prompt, status, analysisInterval } = analysisData;
+        const { streamId, cameraId, userId, prompt, status, analysisInterval, jsonOption = false } = analysisData;
 
-        console.log('[VIDEO_ANALYSIS_MODEL] Creating analysis session:', { streamId, cameraId, userId, prompt });
+        console.log('[VIDEO_ANALYSIS_MODEL] Creating analysis session:', { streamId, cameraId, userId, prompt, jsonOption });
 
         const query = `
-          INSERT INTO video_analysis (streamId, cameraId, userId, prompt, status, analysisInterval, createdAt, updatedAt)
-          VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          INSERT INTO video_analysis (streamId, cameraId, userId, prompt, status, analysisInterval, jsonOption, createdAt, updatedAt)
+          VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         `;
 
-        db.run(query, [streamId, cameraId, userId, prompt, status, analysisInterval], function(err) {
+        db.run(query, [streamId, cameraId, userId, prompt, status, analysisInterval, jsonOption ? 1 : 0], function(err) {
           if (err) {
             console.error('[VIDEO_ANALYSIS_MODEL] Error creating analysis:', err.message);
             reject(err);
@@ -45,7 +45,7 @@ class VideoAnalysis {
         }
 
         const query = `
-          SELECT id as _id, streamId, cameraId, userId, prompt, status, analysisInterval,
+          SELECT id as _id, streamId, cameraId, userId, prompt, status, analysisInterval, jsonOption,
                  createdAt, updatedAt
           FROM video_analysis
           WHERE id = ?
@@ -56,6 +56,9 @@ class VideoAnalysis {
             console.error('[VIDEO_ANALYSIS_MODEL] Error finding analysis:', err.message);
             reject(err);
           } else {
+            if (row) {
+              row.jsonOption = Boolean(row.jsonOption);
+            }
             resolve(row);
           }
         });
@@ -75,7 +78,7 @@ class VideoAnalysis {
         }
 
         const query = `
-          SELECT id as _id, streamId, cameraId, userId, prompt, status, analysisInterval,
+          SELECT id as _id, streamId, cameraId, userId, prompt, status, analysisInterval, jsonOption,
                  createdAt, updatedAt
           FROM video_analysis
           WHERE streamId = ?
@@ -86,6 +89,9 @@ class VideoAnalysis {
             console.error('[VIDEO_ANALYSIS_MODEL] Error finding analysis by streamId:', err.message);
             reject(err);
           } else {
+            if (row) {
+              row.jsonOption = Boolean(row.jsonOption);
+            }
             resolve(row);
           }
         });

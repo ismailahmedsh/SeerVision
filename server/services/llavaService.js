@@ -244,55 +244,139 @@ class LLaVAService {
     }
   }
 
-  async generateSuggestions(frameBase64, retryAttempt = 0) {
-    try {
-      if (!frameBase64 || frameBase64.length < 1000) {
-        throw new Error('Invalid frame data for suggestion generation');
-      }
+  async generateSuggestionsWithRetry(frameBase64) {
+    const retryPrompts = [
+      // First attempt - ask for 5 suggestions, 3 words max
+      `Based on the image provided, suggest actionable prompts only—commands that can be performed—related to the image, such as 'count objects' or 'describe scene'. Provide up to 5 suggestions, each no longer than 3 words.`,
 
-      const suggestionPrompt = `Look at this image and suggest 6 analysis commands (2-5 words each) that someone could use to examine this scene.
+      // Second attempt - ask for 3 suggestions, 2 words max
+      `Based on the image provided, suggest actionable prompts only—commands that can be performed—related to the image, such as 'count objects' or 'describe scene'. Provide up to 3 suggestions, each no longer than 2 words.`,
 
-IMPORTANT: Provide ONLY the command/action, NOT the answer or description.
+      // Third attempt - ask for 2 suggestions, 2 words max
+      `Based on the image provided, suggest actionable prompts only—commands that can be performed—related to the image, such as 'count objects' or 'describe scene'. Provide up to 2 suggestions, each no longer than 2 words.`
+    ];
 
-Examples of CORRECT format:
-- Count people (NOT "Count people: 2 people")
-- Check lighting conditions (NOT "Check lighting: bright room")
-- Analyze visible colors (NOT "Analyze colors: blue, red")
-- Identify main objects (NOT "Identify objects: chair, table")
-- Detect any movement (NOT "Detect movement: none visible")
-- Find visible vehicles (NOT "Find vehicles: 1 car")
+    let accumulatedSuggestions = [];
 
-Generate exactly 6 imperative commands based on what you see. Each must be 2-5 words. Use only action verbs like: Count, Check, Analyze, Identify, Detect, Find, Examine, Describe.
+    for (let attempt = 0; attempt < retryPrompts.length; attempt++) {
+      try {
+        console.log(`[LLAVA_SERVICE] Suggestion attempt ${attempt + 1} with prompt: ${retryPrompts[attempt]}`);
 
-Format: One command per line, no numbers, no colons, no descriptions, no answers.`;
+        const suggestionStreamId = `suggestions-${Date.now()}-attempt-${attempt}`;
+        const result = await this.analyzeFrame(frameBase64, retryPrompts[attempt], 30, suggestionStreamId);
 
-      const suggestionStreamId = `suggestions-${Date.now()}-retry-${retryAttempt}`;
-      const result = await this.analyzeFrame(frameBase64, suggestionPrompt, 30, suggestionStreamId);
-      const suggestions = this.processStrictSuggestionResponse(result.answer);
+        console.log(`[LLAVA_SERVICE] Raw model response for attempt ${attempt + 1}:`, result.answer);
 
-      if (suggestions.length < 3) {
-        if (retryAttempt === 0) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          return await this.generateSuggestions(frameBase64, 1);
-        } else {
-          throw new Error(`Insufficient suggestions after retry: only ${suggestions.length} valid suggestions generated (minimum 3 required)`);
+        const suggestions = this.processModelResponse(result.answer);
+        console.log(`[LLAVA_SERVICE] Processed suggestions for attempt ${attempt + 1}:`, suggestions);
+
+        // Accumulate suggestions from this attempt
+        accumulatedSuggestions = [...accumulatedSuggestions, ...suggestions];
+        
+        // Remove duplicates
+        accumulatedSuggestions = [...new Set(accumulatedSuggestions)];
+
+        console.log(`[LLAVA_SERVICE] Accumulated suggestions after attempt ${attempt + 1}:`, accumulatedSuggestions);
+
+        // If we have any valid suggestions, return them immediately
+        if (accumulatedSuggestions.length > 0) {
+          console.log(`[LLAVA_SERVICE] Success: returning ${accumulatedSuggestions.length} accumulated suggestions`);
+          return accumulatedSuggestions.slice(0, 6); // Limit to 6 max
         }
-      }
 
-      return suggestions;
-
-    } catch (error) {
-      if (retryAttempt === 0 && !error.message.includes('Insufficient suggestions')) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        try {
-          return await this.generateSuggestions(frameBase64, 1);
-        } catch (retryError) {
-          throw new Error(`LLaVA suggestion generation failed after retry: ${retryError.message}`);
+        // If this is the last attempt and we have no suggestions, fail
+        if (attempt === retryPrompts.length - 1) {
+          console.log(`[LLAVA_SERVICE] All attempts completed with no valid suggestions`);
+          throw new Error(`No valid suggestions generated after ${retryPrompts.length} attempts`);
         }
-      }
 
-      throw new Error(`LLaVA suggestion generation failed: ${error.message}`);
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+      } catch (error) {
+        console.error(`[LLAVA_SERVICE] Attempt ${attempt + 1} error:`, error.message);
+
+        // If this is the last attempt, return what we have or fail
+        if (attempt === retryPrompts.length - 1) {
+          if (accumulatedSuggestions.length > 0) {
+            console.log(`[LLAVA_SERVICE] Final attempt failed but returning ${accumulatedSuggestions.length} accumulated suggestions`);
+            return accumulatedSuggestions.slice(0, 6);
+          } else {
+            console.log(`[LLAVA_SERVICE] All attempts failed with no accumulated suggestions`);
+            throw new Error(`All retry attempts failed. Final error: ${error.message}`);
+          }
+        }
+
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
     }
+  }
+
+  getFallbackSuggestions() {
+    // Return basic, universally applicable suggestions when model fails
+    return [
+      'Count people',
+      'Describe scene',
+      'Find objects',
+      'Check activity'
+    ];
+  }
+
+  async generateSuggestions(frameBase64, retryAttempt = 0) {
+    // This method is now replaced by generateSuggestionsWithRetry
+    return await this.generateSuggestionsWithRetry(frameBase64);
+  }
+
+  processModelResponse(answer) {
+    console.log('[LLAVA_SERVICE] Processing raw model response (minimal filtering):', answer);
+
+    // Extremely minimal processing - accept almost everything the model provides
+    const suggestions = answer
+      .split('\n')
+      .map((line) => {
+        // Only remove basic formatting characters
+        let cleaned = line.replace(/^\d+\.?\s*/, '').replace(/^[-•*]\s*/, '').trim();
+        cleaned = cleaned.replace(/^["']|["']$/g, '');
+
+        // Only skip completely empty lines
+        if (cleaned.length === 0) {
+          return null;
+        }
+
+        // Accept everything else - no word count limits, no content validation
+        return cleaned;
+      })
+      .filter(suggestion => suggestion !== null && suggestion.trim().length > 0);
+
+    // Also try splitting by other delimiters if newlines don't work
+    if (suggestions.length === 0) {
+      console.log('[LLAVA_SERVICE] No newline-separated suggestions found, trying comma/period separation');
+      
+      const alternativeSuggestions = answer
+        .split(/[,.;]/)
+        .map(part => {
+          let cleaned = part.replace(/^\d+\.?\s*/, '').replace(/^[-•*]\s*/, '').trim();
+          cleaned = cleaned.replace(/^["']|["']$/g, '');
+          return cleaned.length > 0 ? cleaned : null;
+        })
+        .filter(suggestion => suggestion !== null);
+      
+      console.log('[LLAVA_SERVICE] Alternative parsing found:', alternativeSuggestions);
+      suggestions.push(...alternativeSuggestions);
+    }
+
+    // If still no suggestions, take the entire response as one suggestion
+    if (suggestions.length === 0 && answer.trim().length > 0) {
+      console.log('[LLAVA_SERVICE] No parsed suggestions, using entire response as single suggestion');
+      const entireResponse = answer.trim().replace(/^["']|["']$/g, '');
+      if (entireResponse.length > 0) {
+        suggestions.push(entireResponse);
+      }
+    }
+
+    console.log('[LLAVA_SERVICE] Final extracted suggestions (ultra-minimal processing):', suggestions);
+    return suggestions.slice(0, 6); // Limit to 6 max to prevent UI overflow
   }
 
   processStrictSuggestionResponse(answer) {

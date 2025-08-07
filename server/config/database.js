@@ -6,22 +6,37 @@ let db = null;
 const connectDB = async () => {
   return new Promise((resolve, reject) => {
     try {
-      const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '..', 'database.sqlite');
-      console.log(`[DATABASE] Connecting to database at: ${dbPath}`);
+      console.log('[DATABASE] Attempting to connect to database...');
+      const dbPath = path.resolve(process.env.DATABASE_PATH);
+      console.log('[DATABASE] Database path:', dbPath);
 
       db = new sqlite3.Database(dbPath, (err) => {
         if (err) {
-          console.error('[DATABASE] Error connecting to database:', err.message);
+          console.error('[DATABASE] Connection error:', err.message);
           reject(err);
         } else {
-          console.log('[DATABASE] Connected to SQLite database');
+          console.log('[DATABASE] Connected to SQLite database successfully');
+          
+          // Initialize tables after connection
           initializeTables()
-            .then(() => resolve())
-            .catch(reject);
+            .then(() => {
+              console.log('[DATABASE] Tables initialized successfully');
+              resolve();
+            })
+            .catch((initError) => {
+              console.error('[DATABASE] Table initialization failed:', initError);
+              reject(initError);
+            });
         }
       });
+
+      // Handle database errors
+      db.on('error', (err) => {
+        console.error('[DATABASE] Database error:', err.message);
+      });
+
     } catch (error) {
-      console.error('[DATABASE] CRITICAL ERROR in connectDB:', error);
+      console.error('[DATABASE] Critical error in connectDB:', error);
       reject(error);
     }
   });
@@ -29,192 +44,187 @@ const connectDB = async () => {
 
 const initializeTables = async () => {
   return new Promise((resolve, reject) => {
-    console.log('[DATABASE] Initializing database tables...');
+    try {
+      console.log('[DATABASE] Starting table initialization...');
 
-    const queries = [
       // Users table
-      `CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        role TEXT DEFAULT 'user',
-        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
-      )`,
+      const createUsersTable = `
+        CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          email TEXT UNIQUE NOT NULL,
+          password TEXT NOT NULL,
+          name TEXT DEFAULT '',
+          role TEXT DEFAULT 'user',
+          refreshToken TEXT,
+          lastLogin DATETIME,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `;
 
       // Cameras table
-      `CREATE TABLE IF NOT EXISTS cameras (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        type TEXT NOT NULL,
-        streamUrl TEXT NOT NULL,
-        userId INTEGER NOT NULL,
-        status TEXT DEFAULT 'disconnected',
-        lastSeen DATETIME,
-        recordingEnabled BOOLEAN DEFAULT 0,
-        motionDetection BOOLEAN DEFAULT 0,
-        alertsEnabled BOOLEAN DEFAULT 1,
-        analysisInterval INTEGER DEFAULT 30,
-        resolution TEXT DEFAULT '1920x1080',
-        frameRate INTEGER DEFAULT 30,
-        bitrate TEXT DEFAULT '2000kbps',
-        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (userId) REFERENCES users (id) ON DELETE CASCADE
-      )`,
+      const createCamerasTable = `
+        CREATE TABLE IF NOT EXISTS cameras (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          userId INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          streamUrl TEXT NOT NULL,
+          status TEXT DEFAULT 'disconnected',
+          lastSeen DATETIME,
+          recordingEnabled INTEGER DEFAULT 0,
+          motionDetection INTEGER DEFAULT 0,
+          alertsEnabled INTEGER DEFAULT 0,
+          analysisInterval INTEGER DEFAULT 30,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (userId) REFERENCES users (id) ON DELETE CASCADE
+        )
+      `;
 
-      // Video analysis sessions table
-      `CREATE TABLE IF NOT EXISTS video_analysis (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        streamId TEXT UNIQUE NOT NULL,
-        cameraId INTEGER NOT NULL,
-        userId INTEGER NOT NULL,
-        prompt TEXT NOT NULL,
-        status TEXT DEFAULT 'active',
-        analysisInterval INTEGER DEFAULT 30,
-        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (cameraId) REFERENCES cameras (id) ON DELETE CASCADE,
-        FOREIGN KEY (userId) REFERENCES users (id) ON DELETE CASCADE
-      )`
-    ];
+      // Video Analysis table
+      const createVideoAnalysisTable = `
+        CREATE TABLE IF NOT EXISTS video_analysis (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          streamId TEXT UNIQUE NOT NULL,
+          cameraId INTEGER NOT NULL,
+          userId INTEGER NOT NULL,
+          prompt TEXT NOT NULL,
+          status TEXT DEFAULT 'active',
+          analysisInterval INTEGER DEFAULT 30,
+          jsonOption INTEGER DEFAULT 0,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (cameraId) REFERENCES cameras (id) ON DELETE CASCADE,
+          FOREIGN KEY (userId) REFERENCES users (id) ON DELETE CASCADE
+        )
+      `;
 
-    let completed = 0;
-    const total = queries.length;
+      // Analysis Results table
+      const createAnalysisResultsTable = `
+        CREATE TABLE IF NOT EXISTS analysis_results (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          streamId TEXT NOT NULL,
+          answer TEXT NOT NULL,
+          accuracyScore REAL DEFAULT 0.0,
+          timestamp TEXT NOT NULL,
+          rawJson TEXT,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (streamId) REFERENCES video_analysis (streamId) ON DELETE CASCADE
+        )
+      `;
 
-    queries.forEach((query, index) => {
-      db.run(query, (err) => {
-        if (err) {
-          console.error(`[DATABASE] Error creating table ${index + 1}:`, err.message);
-          reject(err);
-        } else {
-          completed++;
-          console.log(`[DATABASE] Table ${index + 1}/${total} created successfully`);
-
-          if (completed === total) {
-            console.log('[DATABASE] All tables initialized successfully');
-            // Run migrations after tables are created
-            runMigrations()
-              .then(() => resolve())
-              .catch(reject);
+      // Execute table creation queries
+      db.serialize(() => {
+        console.log('[DATABASE] Creating users table...');
+        db.run(createUsersTable, (err) => {
+          if (err) {
+            console.error('[DATABASE] Error creating users table:', err.message);
+            reject(err);
+            return;
           }
-        }
+          console.log('[DATABASE] Users table created successfully');
+        });
+
+        console.log('[DATABASE] Creating cameras table...');
+        db.run(createCamerasTable, (err) => {
+          if (err) {
+            console.error('[DATABASE] Error creating cameras table:', err.message);
+            reject(err);
+            return;
+          }
+          console.log('[DATABASE] Cameras table created successfully');
+        });
+
+        console.log('[DATABASE] Creating video_analysis table...');
+        db.run(createVideoAnalysisTable, (err) => {
+          if (err) {
+            console.error('[DATABASE] Error creating video_analysis table:', err.message);
+            reject(err);
+            return;
+          }
+          console.log('[DATABASE] Video analysis table created successfully');
+        });
+
+        console.log('[DATABASE] Creating analysis_results table...');
+        db.run(createAnalysisResultsTable, (err) => {
+          if (err) {
+            console.error('[DATABASE] Error creating analysis_results table:', err.message);
+            reject(err);
+            return;
+          }
+          console.log('[DATABASE] Analysis results table created successfully');
+          
+          // Run migrations after all tables are created
+          runMigrations()
+            .then(() => {
+              console.log('[DATABASE] All tables and migrations completed successfully');
+              resolve();
+            })
+            .catch((migrationError) => {
+              console.error('[DATABASE] Migration failed:', migrationError);
+              reject(migrationError);
+            });
+        });
       });
-    });
+
+    } catch (error) {
+      console.error('[DATABASE] Critical error in initializeTables:', error);
+      reject(error);
+    }
   });
 };
 
 const runMigrations = async () => {
   return new Promise((resolve, reject) => {
-    console.log('[DATABASE] Running database migrations...');
+    try {
+      console.log('[DATABASE] Running migrations...');
 
-    // First check if analysis_results table exists at all
-    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='analysis_results'", (err, row) => {
-      if (err) {
-        console.error('[DATABASE] Error checking if analysis_results table exists:', err.message);
-        reject(err);
-        return;
-      }
-
-      if (!row) {
-        console.log('[DATABASE] analysis_results table does not exist, creating it...');
-        // Create the table with correct schema
-        const createQuery = `CREATE TABLE analysis_results (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          streamId TEXT NOT NULL,
-          answer TEXT NOT NULL,
-          accuracyScore REAL DEFAULT 0.75,
-          timestamp TEXT NOT NULL,
-          rawJson TEXT,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (streamId) REFERENCES video_analysis (streamId) ON DELETE CASCADE
-        )`;
-
-        db.run(createQuery, (createErr) => {
-          if (createErr) {
-            console.error('[DATABASE] Error creating analysis_results table:', createErr.message);
-            reject(createErr);
-          } else {
-            console.log('[DATABASE] analysis_results table created successfully');
-            resolve();
-          }
-        });
-        return;
-      }
-
-      console.log('[DATABASE] analysis_results table exists, checking schema...');
-
-      // Check if analysis_results table has streamId column
-      db.all("PRAGMA table_info(analysis_results)", (pragmaErr, columns) => {
-        if (pragmaErr) {
-          console.error('[DATABASE] Error checking table info:', pragmaErr.message);
-          reject(pragmaErr);
+      // Check if jsonOption column exists in video_analysis table
+      db.all("PRAGMA table_info(video_analysis)", (err, columns) => {
+        if (err) {
+          console.error('[DATABASE] Error checking table info:', err.message);
+          reject(err);
           return;
         }
 
-        const hasStreamIdColumn = columns.some(col => col.name === 'streamId');
-        console.log('[DATABASE] analysis_results table columns:', columns.map(c => c.name));
-        console.log('[DATABASE] Has streamId column:', hasStreamIdColumn);
-
-        if (!hasStreamIdColumn) {
-          console.log('[DATABASE] Migrating analysis_results table - recreating with correct schema');
-          
-          // Drop and recreate the analysis_results table with correct schema
-          const migrationQueries = [
-            'DROP TABLE IF EXISTS analysis_results',
-            `CREATE TABLE analysis_results (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              streamId TEXT NOT NULL,
-              answer TEXT NOT NULL,
-              accuracyScore REAL DEFAULT 0.75,
-              timestamp TEXT NOT NULL,
-              rawJson TEXT,
-              createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-              FOREIGN KEY (streamId) REFERENCES video_analysis (streamId) ON DELETE CASCADE
-            )`
-          ];
-
-          let migrationCompleted = 0;
-          const migrationTotal = migrationQueries.length;
-
-          migrationQueries.forEach((query, index) => {
-            db.run(query, (migrationErr) => {
-              if (migrationErr) {
-                console.error(`[DATABASE] Error in migration query ${index + 1}:`, migrationErr.message);
-                reject(migrationErr);
-              } else {
-                migrationCompleted++;
-                console.log(`[DATABASE] Migration query ${index + 1}/${migrationTotal} completed`);
-
-                if (migrationCompleted === migrationTotal) {
-                  console.log('[DATABASE] Migration completed successfully');
-                  resolve();
-                }
-              }
-            });
+        const hasJsonOption = columns.some(col => col.name === 'jsonOption');
+        
+        if (!hasJsonOption) {
+          console.log('[DATABASE] Adding jsonOption column to video_analysis table...');
+          db.run("ALTER TABLE video_analysis ADD COLUMN jsonOption INTEGER DEFAULT 0", (alterErr) => {
+            if (alterErr) {
+              console.error('[DATABASE] Error adding jsonOption column:', alterErr.message);
+              reject(alterErr);
+              return;
+            }
+            console.log('[DATABASE] jsonOption column added successfully');
+            resolve();
           });
         } else {
-          console.log('[DATABASE] No migration needed - analysis_results table already has correct schema');
+          console.log('[DATABASE] jsonOption column already exists');
           resolve();
         }
       });
-    });
+
+    } catch (error) {
+      console.error('[DATABASE] Critical error in runMigrations:', error);
+      reject(error);
+    }
   });
 };
 
 const getDb = () => {
   if (!db) {
-    console.error('[DATABASE] Database connection not established');
+    console.error('[DATABASE] Database connection is not initialized');
     return null;
   }
   return db;
 };
 
-const closeDB = async () => {
+const closeDB = () => {
   return new Promise((resolve, reject) => {
     if (db) {
-      console.log('[DATABASE] Closing database connection...');
       db.close((err) => {
         if (err) {
           console.error('[DATABASE] Error closing database:', err.message);
