@@ -69,43 +69,15 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
 
   const loadAvailableDevices = async () => {
     try {
-      console.log('[ADD_CAMERA_DIALOG] Loading available USB devices')
-      setLoadingDevices(true)
-      
-      // Request permission and get media devices
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-      
-      // Stop the stream immediately - we just needed permission
-      stream.getTracks().forEach(track => track.stop())
-      
-      // Now get the list of devices
       const devices = await navigator.mediaDevices.enumerateDevices()
       const videoDevices = devices.filter(device => device.kind === 'videoinput')
-      
-      console.log('[ADD_CAMERA_DIALOG] Found video devices:', videoDevices)
       setAvailableDevices(videoDevices)
-      
-      if (videoDevices.length === 0) {
-        toast({
-          title: "No Cameras Found",
-          description: "No USB cameras were detected on your system",
-          variant: "destructive",
-        })
-      }
     } catch (error) {
-      console.error('[ADD_CAMERA_DIALOG] Error loading devices:', error)
-      toast({
-        title: "Camera Access Error",
-        description: "Failed to access camera devices. Please ensure you have granted camera permissions.",
-        variant: "destructive",
-      })
-    } finally {
-      setLoadingDevices(false)
+      console.error('Failed to load available devices:', error)
     }
   }
 
   const handleClose = () => {
-    console.log('[ADD_CAMERA_DIALOG] Closing dialog')
     setStep('form')
     setTestResult(null)
     setAvailableDevices([])
@@ -113,9 +85,13 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
     onOpenChange(false)
   }
 
+  const handleTypeChange = (value: string) => {
+    setValue('type', value)
+    setTestResult(null)
+  }
+
   const testConnection = async (data: CameraFormData) => {
     try {
-      console.log('[ADD_CAMERA_DIALOG] Testing camera connection:', data)
       setLoading(true)
       setStep('testing')
 
@@ -153,7 +129,7 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
           })
           return
         } catch (error) {
-          console.error('[ADD_CAMERA_DIALOG] USB camera test failed:', error)
+          console.error('USB camera test failed:', error)
           setTestResult({
             success: false,
             message: 'Failed to access USB camera. Please check permissions and try again.'
@@ -171,22 +147,18 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
       // For network cameras, use the existing test
       const response = await testCameraConnection(testData)
 
-      console.log('[ADD_CAMERA_DIALOG] Connection test response:', response)
-
       setTestResult({
         success: response.success,
         message: response.message
       })
 
       if (response.success) {
-        console.log('[ADD_CAMERA_DIALOG] Connection test successful')
         setStep('form')
         toast({
           title: "Connection Successful",
           description: "Camera stream is working properly",
         })
       } else {
-        console.log('[ADD_CAMERA_DIALOG] Connection test failed:', response.message)
         setStep('form')
         toast({
           title: "Connection Failed",
@@ -195,7 +167,7 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
         })
       }
     } catch (error) {
-      console.error('[ADD_CAMERA_DIALOG] Error testing connection:', error)
+      console.error('Error testing connection:', error)
       setTestResult({
         success: false,
         message: "Failed to test connection"
@@ -212,17 +184,12 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
   }
 
   const onSubmit = async (data: CameraFormData) => {
-    console.log('[ADD_CAMERA_DIALOG] onSubmit called with data:', data)
-    console.log('[ADD_CAMERA_DIALOG] testResult:', testResult)
-
     if (!testResult?.success) {
-      console.log('[ADD_CAMERA_DIALOG] No successful test result, testing connection first')
       await testConnection(data)
       return
     }
 
     try {
-      console.log('[ADD_CAMERA_DIALOG] Adding camera with data:', data)
       setLoading(true)
 
       // Prepare data for backend
@@ -237,26 +204,29 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
         cameraData.streamUrl = `usb:${data.deviceId}`
       }
 
-      console.log('[ADD_CAMERA_DIALOG] Sending camera data to backend:', cameraData)
-
       const response = await addCamera(cameraData)
-      console.log('[ADD_CAMERA_DIALOG] Add camera response:', response)
 
-      console.log('[ADD_CAMERA_DIALOG] Camera added successfully, transitioning to success state')
-      setStep('success')
+      if (response.success) {
+        setStep('success')
 
-      setTimeout(() => {
-        console.log('[ADD_CAMERA_DIALOG] Success timeout completed, closing dialog and calling onCameraAdded')
-        handleClose()
-        onCameraAdded()
-      }, 1500)
+        setTimeout(() => {
+          handleClose()
+          onCameraAdded()
+        }, 1500)
 
-      toast({
-        title: "Success",
-        description: "Camera added successfully",
-      })
-    } catch (error) {
-      console.error('[ADD_CAMERA_DIALOG] Error adding camera:', error)
+        toast({
+          title: "Success",
+          description: "Camera added successfully",
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: response.message || "Failed to add camera",
+          variant: "destructive",
+        })
+      }
+    } catch (error: any) {
+      console.error('Error adding camera:', error)
       setStep('form')
       toast({
         title: "Error",
@@ -282,8 +252,6 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
   }
 
   const isUsbCamera = watchedType === 'usb'
-
-  console.log('[ADD_CAMERA_DIALOG] Render - step:', step, 'loading:', loading, 'testResult:', testResult, 'isUsbCamera:', isUsbCamera)
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -317,12 +285,7 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
 
               <div className="space-y-2">
                 <Label htmlFor="type">Camera Type</Label>
-                <Select onValueChange={(value) => {
-                  console.log('[ADD_CAMERA_DIALOG] Type selected:', value)
-                  setValue('type', value)
-                  // Reset test result when type changes
-                  setTestResult(null)
-                }}>
+                <Select onValueChange={handleTypeChange}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select camera type" />
                   </SelectTrigger>

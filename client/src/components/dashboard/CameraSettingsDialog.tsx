@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getCameraSettings, updateCameraSettings, updateCamera } from "@/api/cameras"
 import { useToast } from "@/hooks/useToast"
@@ -33,7 +34,17 @@ interface CameraSettingsDialogProps {
     type: string
     streamUrl: string
     status: string
+    memory?: boolean
   } | null
+}
+
+interface Camera {
+  _id: string
+  name: string
+  type: string
+  streamUrl: string
+  status: string
+  memory?: boolean
 }
 
 interface CameraSettings {
@@ -41,6 +52,7 @@ interface CameraSettings {
   streamUrl: string
   type: string
   analysisInterval: number
+  memory: boolean
   qualitySettings: {
     resolution: string
     frameRate: number
@@ -54,16 +66,13 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [streamNeedsRestart, setStreamNeedsRestart] = useState(false)
+  const [analysisInterval, setAnalysisInterval] = useState(30)
   const { toast } = useToast()
-
-  console.log('[CAMERA_SETTINGS_DIALOG] Component render - camera:', camera?.name, 'open:', open)
 
   useEffect(() => {
     if (open && camera) {
-      console.log('[CAMERA_SETTINGS_DIALOG] Dialog opened, loading settings for camera:', camera._id)
       loadSettings()
     } else if (!open) {
-      console.log('[CAMERA_SETTINGS_DIALOG] Dialog closed, resetting settings')
       setOriginalSettings(null)
       setSettings(null)
       setStreamNeedsRestart(false)
@@ -72,242 +81,121 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
 
   const loadSettings = async () => {
     if (!camera) {
-      console.log('[CAMERA_SETTINGS_DIALOG] No camera provided')
       return
     }
 
     try {
-      console.log('[CAMERA_SETTINGS_DIALOG] Loading settings for camera:', camera._id)
-      setLoading(true)
       const response = await getCameraSettings(camera._id)
-      console.log('[CAMERA_SETTINGS_DIALOG] Settings loaded:', response.settings)
-
-      // Store both original and current settings
-      setOriginalSettings(response.settings)
-      setSettings(response.settings)
-
+      if (response.success && response.settings) {
+        setSettings(response.settings)
+        setAnalysisInterval(response.settings.analysisInterval || 30)
+      } else {
+        const defaultSettings: CameraSettings = {
+          name: camera.name,
+          streamUrl: camera.streamUrl,
+          type: camera.type,
+          analysisInterval: 30,
+          memory: camera.memory ?? false,
+          qualitySettings: {
+            resolution: '1920x1080',
+            frameRate: 30,
+            bitrate: '2000kbps'
+          }
+        }
+        setSettings(defaultSettings)
+        setAnalysisInterval(defaultSettings.analysisInterval)
+      }
     } catch (error) {
-      console.error('[CAMERA_SETTINGS_DIALOG] Error loading settings:', error)
-
-      // If settings loading fails, create default settings from camera data
-      console.log('[CAMERA_SETTINGS_DIALOG] Creating default settings from camera data')
-      const defaultSettings: CameraSettings = {
+      console.error('Failed to load camera settings:', error)
+      const fallbackSettings: CameraSettings = {
         name: camera.name,
         streamUrl: camera.streamUrl,
         type: camera.type,
         analysisInterval: 30,
+        memory: camera.memory ?? false,
         qualitySettings: {
           resolution: '1920x1080',
           frameRate: 30,
           bitrate: '2000kbps'
         }
       }
-      setOriginalSettings(defaultSettings)
-      setSettings(defaultSettings)
-
-      toast({
-        title: "Warning",
-        description: "Using default settings. Some features may not be available.",
-        variant: "destructive",
-      })
-    } finally {
-      setLoading(false)
+      setSettings(fallbackSettings)
+      setAnalysisInterval(fallbackSettings.analysisInterval)
     }
   }
 
-  const updateAnalysisInterval = (newInterval: number) => {
-    if (!settings || !camera) return
-
-    // Enforce minimum 6 seconds
-    const enforcedInterval = Math.max(6, newInterval);
-    console.log('[CAMERA_SETTINGS_DIALOG] Updating analysis interval to:', enforcedInterval, 'seconds (minimum 6s enforced)')
-
-    // Update settings immediately in UI
-    const updatedSettings = {
-      ...settings,
-      analysisInterval: enforcedInterval
-    }
-    setSettings(updatedSettings)
-
-    // DO NOT save immediately or show toast - only update UI
-    console.log('[CAMERA_SETTINGS_DIALOG] Analysis interval updated in UI only - will save when user clicks Save Settings')
+  const handleAnalysisIntervalChange = (value: number) => {
+    const enforcedInterval = Math.max(6, value)
+    setAnalysisInterval(enforcedInterval)
   }
 
-  const saveSettings = async () => {
+  const handleSaveSettings = async () => {
     if (!camera || !settings) {
-      console.log('[CAMERA_SETTINGS_DIALOG] Cannot save - missing camera or settings')
       return
     }
 
     try {
-      console.log('[CAMERA_SETTINGS_DIALOG] ===== SAVE SETTINGS START =====');
-      console.log('[CAMERA_SETTINGS_DIALOG] Saving settings for camera:', camera._id);
-      console.log('[CAMERA_SETTINGS_DIALOG] Camera name:', camera.name);
-      setSaving(true)
+      const updatedSettings = {
+        ...settings,
+        analysisInterval
+      }
 
-      let analysisWasStopped = false;
-
-      // CRITICAL: Try to stop active analysis using direct function call
-      console.log('[CAMERA_SETTINGS_DIALOG] ===== CHECKING FOR ACTIVE ANALYSIS =====');
-      console.log('[CAMERA_SETTINGS_DIALOG] Looking for global stop function...');
+      const response = await updateCameraSettings(camera._id, updatedSettings)
       
-      const stopActiveAnalysis = (window as any).stopActiveAnalysis;
-      console.log('[CAMERA_SETTINGS_DIALOG] Stop function available:', !!stopActiveAnalysis);
-      console.log('[CAMERA_SETTINGS_DIALOG] Stop function type:', typeof stopActiveAnalysis);
-
-      if (stopActiveAnalysis && typeof stopActiveAnalysis === 'function') {
-        console.log('[CAMERA_SETTINGS_DIALOG] ===== CALLING DIRECT STOP FUNCTION =====');
-        console.log('[CAMERA_SETTINGS_DIALOG] Calling stop function for camera:', camera._id);
-
-        try {
-          const stopResult = await stopActiveAnalysis(camera._id);
-          console.log('[CAMERA_SETTINGS_DIALOG] Stop function result:', stopResult);
-
-          if (stopResult.success) {
-            analysisWasStopped = true;
-            console.log('[CAMERA_SETTINGS_DIALOG] Analysis stopped successfully via direct call');
-          } else {
-            console.log('[CAMERA_SETTINGS_DIALOG] Stop function returned failure:', stopResult.error);
-          }
-        } catch (stopError) {
-          console.error('[CAMERA_SETTINGS_DIALOG] Error calling stop function:', stopError);
-          toast({
-            title: "Warning",
-            description: "Could not stop active analysis. Settings will still be saved.",
-            variant: "destructive",
-          });
-        }
-      } else {
-        console.log('[CAMERA_SETTINGS_DIALOG] ===== NO ACTIVE ANALYSIS DETECTED =====');
-        console.log('[CAMERA_SETTINGS_DIALOG] No stop function available - no active analysis');
-      }
-
-      console.log('[CAMERA_SETTINGS_DIALOG] ===== PROCEEDING WITH SETTINGS SAVE =====');
-      console.log('[CAMERA_SETTINGS_DIALOG] Analysis was stopped:', analysisWasStopped);
-
-      // Update camera basic info if name changed
-      if (settings.name !== camera.name) {
-        console.log('[CAMERA_SETTINGS_DIALOG] Camera name changed, updating camera info')
-        await updateCamera(camera._id, { name: settings.name })
-      }
-
-      // Update camera settings
-      console.log('[CAMERA_SETTINGS_DIALOG] Updating camera settings...');
-      await updateCameraSettings(camera._id, settings)
-
-      // Update original settings to reflect saved state
-      setOriginalSettings({ ...settings })
-
-      // Show appropriate success message
-      if (analysisWasStopped) {
-        console.log('[CAMERA_SETTINGS_DIALOG] Showing analysis stopped message');
-        toast({
-          title: "Analysis Stopped",
-          description: "Analysis stopped. Changes saved successfully. Please start analysis again.",
-          duration: 5000,
-        });
-      } else {
+      if (response.success) {
         toast({
           title: "Success",
           description: "Camera settings updated successfully",
-        });
-      }
-
-      // Show stream restart notification if needed
-      if (streamNeedsRestart) {
-        toast({
-          title: "Stream Restart Required",
-          description: "Quality changes will take effect after stream restart",
         })
-        setStreamNeedsRestart(false)
+        
+        if (onCameraUpdated) {
+          onCameraUpdated()
+        }
+        
+        onOpenChange(false)
+      } else {
+        toast({
+          title: "Error",
+          description: response.message || "Failed to update settings",
+          variant: "destructive",
+        })
       }
-
-      // Refresh parent component
-      if (onCameraUpdated) {
-        onCameraUpdated()
-      }
-
-      // Trigger global camera refresh notification
-      if ((window as any).notifyAllComponentsCameraUpdate) {
-        (window as any).notifyAllComponentsCameraUpdate(camera._id, {
-          ...settings,
-          analysisWasStopped
-        });
-      }
-
-      onOpenChange(false)
-    } catch (error) {
-      console.error('[CAMERA_SETTINGS_DIALOG] Error saving settings:', error)
+    } catch (error: any) {
+      console.error('Failed to save camera settings:', error)
       toast({
         title: "Error",
-        description: error.message || "Failed to update camera settings",
+        description: error.message || "Failed to save settings",
         variant: "destructive",
       })
-    } finally {
-      setSaving(false)
     }
   }
 
   const cancelSettings = () => {
-    console.log('[CAMERA_SETTINGS_DIALOG] Canceling settings changes')
     if (originalSettings) {
-      setSettings({ ...originalSettings })
-      setStreamNeedsRestart(false)
-      toast({
-        title: "Changes Reverted",
-        description: "All unsaved changes have been discarded",
-      })
+      setSettings(originalSettings)
     }
     onOpenChange(false)
   }
 
   const updateSetting = (key: string, value: any) => {
-    console.log('[CAMERA_SETTINGS_DIALOG] Updating setting:', key, 'to:', value)
     if (!settings) return
-
-    if (key.startsWith('qualitySettings.')) {
-      const qualityKey = key.split('.')[1]
-      const updatedSettings = {
-        ...settings,
-        qualitySettings: {
-          ...settings.qualitySettings,
-          [qualityKey]: value
-        }
-      }
-      setSettings(updatedSettings)
-
-      // Mark that stream needs restart for quality changes
-      setStreamNeedsRestart(true)
-
-      toast({
-        title: "Quality Setting Updated",
-        description: `${qualityKey} changed to ${value}. Save to apply changes.`,
-      })
-    } else {
-      setSettings({
-        ...settings,
-        [key]: value
-      })
-    }
+    
+    setSettings({
+      ...settings,
+      [key]: value
+    })
   }
 
   const hasUnsavedChanges = () => {
     if (!originalSettings || !settings) return false
+    
     return JSON.stringify(originalSettings) !== JSON.stringify(settings)
   }
 
   if (!camera) {
-    console.log('[CAMERA_SETTINGS_DIALOG] No camera provided, not rendering')
+
     return null
   }
-
-  console.log('[CAMERA_SETTINGS_DIALOG] Current state:', {
-    loading,
-    saving,
-    hasSettings: !!settings,
-    hasUnsavedChanges: hasUnsavedChanges(),
-    streamNeedsRestart
-  })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -413,7 +301,7 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
                 <div className="px-3">
                   <Slider
                     value={[settings.analysisInterval]}
-                    onValueChange={(value) => updateAnalysisInterval(value[0])}
+                    onValueChange={(value) => handleAnalysisIntervalChange(value[0])}
                     max={120}
                     min={6}
                     step={1}
@@ -427,6 +315,19 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
                 </div>
                 <p className="text-xs text-slate-500">
                   Analysis interval will be applied after clicking "Save Settings". Minimum 6 seconds required.
+                </p>
+              </div>
+              
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Memory</Label>
+                  <Switch
+                    checked={settings.memory ?? false}
+                    onCheckedChange={(checked: boolean) => updateSetting('memory', checked)}
+                  />
+                </div>
+                <p className="text-xs text-slate-500">
+                  When enabled, each frame analysis includes context from recent frames for the same stream, allowing the model to answer based on recent events instead of processing each frame in isolation.
                 </p>
               </div>
             </TabsContent>
@@ -449,7 +350,7 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
             Cancel
           </Button>
           <Button
-            onClick={saveSettings}
+            onClick={handleSaveSettings}
             disabled={loading || saving || !settings || !hasUnsavedChanges()}
           >
             {saving ? (

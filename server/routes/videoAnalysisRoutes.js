@@ -4,6 +4,7 @@ const VideoAnalysis = require('../models/VideoAnalysis');
 const Camera = require('../models/Camera');
 const llavaService = require('../services/llavaService');
 const frameCaptureService = require('../services/frameCaptureService');
+const memoryService = require('../services/memoryService');
 const { authenticateToken } = require('./middleware/auth');
 const { v4: uuidv4 } = require('uuid');
 
@@ -11,7 +12,7 @@ router.use(authenticateToken);
 
 router.post('/stream', async (req, res) => {
   try {
-    const { cameraId, prompt, analysisInterval = 30, jsonOption = false } = req.body;
+    const { cameraId, prompt, analysisInterval = 30, jsonOption = false, memory = false } = req.body;
 
     if (!cameraId || !prompt) {
       console.error('Stream creation failed: Missing required fields', { cameraId: !!cameraId, prompt: !!prompt });
@@ -27,7 +28,7 @@ router.post('/stream', async (req, res) => {
       });
     }
 
-    console.log('Creating analysis stream', { cameraId, analysisInterval, jsonOption });
+    console.log('Creating analysis stream', { cameraId, analysisInterval, jsonOption, memory });
 
     const camera = await Camera.findById(cameraId, req.user.id);
     if (!camera) {
@@ -35,6 +36,21 @@ router.post('/stream', async (req, res) => {
       return res.status(404).json({
         error: 'Camera not found or access denied'
       });
+    }
+
+    // Use camera's memory setting if not explicitly provided
+    const useMemory = memory !== undefined ? memory : (camera.memory === 1);
+
+    if (useMemory) {
+      console.log(`[VIDEO_ANALYSIS] Memory enabled for stream, will initialize buffer with size ${memoryService.getBufferSize(analysisInterval)}`);
+
+      // Log memory stream start details
+              console.log(`[MEMORY_LOGGING] Stream started with memory enabled`);
+      console.log(`[MEMORY_LOGGING] Stream ID: ${cameraId}_${Date.now()}`);
+      console.log(`[MEMORY_LOGGING] Analysis interval: ${analysisInterval}s`);
+      console.log(`[MEMORY_LOGGING] Buffer size: ${memoryService.getBufferSize(analysisInterval)} entries`);
+      console.log(`[MEMORY_LOGGING] JSON option: ${jsonOption ? 'enabled' : 'disabled'}`);
+              console.log(`[MEMORY_LOGGING] Stream start completed`);
     }
 
     const health = await llavaService.checkOllamaHealth();
@@ -61,10 +77,11 @@ router.post('/stream', async (req, res) => {
       prompt,
       status: 'active',
       analysisInterval,
-      jsonOption
+      jsonOption,
+      memory: useMemory
     });
 
-    console.log('Analysis stream created successfully', { streamId, cameraName: camera.name, jsonOption });
+    console.log('Analysis stream created successfully', { streamId, cameraName: camera.name, jsonOption, memory: useMemory });
 
     res.status(201).json({
       success: true,
@@ -72,7 +89,8 @@ router.post('/stream', async (req, res) => {
       message: 'Video analysis stream started successfully',
       analysisInterval,
       cameraName: camera.name,
-      jsonOption
+      jsonOption,
+      memory: useMemory
     });
 
   } catch (error) {
@@ -85,20 +103,20 @@ router.post('/stream', async (req, res) => {
 
 router.post('/frame', async (req, res) => {
   try {
-    const { streamId, frameBase64, prompt, jsonOption = false } = req.body;
+    const { streamId, frameBase64, prompt, jsonOption = false, memory = false } = req.body;
 
     if (!streamId || !frameBase64 || !prompt) {
-      console.error('Frame analysis failed: Missing required fields', { 
-        streamId: !!streamId, 
-        frameBase64: !!frameBase64, 
-        prompt: !!prompt 
+      console.error('Frame analysis failed: Missing required fields', {
+        streamId: !!streamId,
+        frameBase64: !!frameBase64,
+        prompt: !!prompt
       });
       return res.status(400).json({
         error: 'Stream ID, frame data, and prompt are required'
       });
     }
 
-    console.log('Processing frame analysis', { streamId, frameSize: frameBase64.length, jsonOption });
+    console.log('Processing frame analysis', { streamId, frameSize: frameBase64.length, jsonOption, memory });
 
     const analysisSession = await VideoAnalysis.findByStreamId(streamId);
     if (!analysisSession || analysisSession.userId !== req.user.id) {
@@ -108,18 +126,88 @@ router.post('/frame', async (req, res) => {
       });
     }
 
-    const analysisInterval = Math.max(6, analysisSession.analysisInterval || 30);
+    // Get the latest camera data to check for updated analysisInterval
+    const camera = await Camera.findById(analysisSession.cameraId, req.user.id);
+    let analysisInterval = Math.max(6, analysisSession.analysisInterval || 30);
+
+    // If camera has been updated with a new interval, use that instead
+    if (camera && camera.analysisInterval && camera.analysisInterval !== analysisSession.analysisInterval) {
+      console.log('[VIDEO_ANALYSIS] Camera interval updated from', analysisSession.analysisInterval, 'to', camera.analysisInterval);
+      analysisInterval = Math.max(6, camera.analysisInterval);
+
+      // Update the analysis session with the new interval for future use
+      try {
+        await VideoAnalysis.updateInterval(streamId, analysisInterval);
+        console.log('[VIDEO_ANALYSIS] Analysis session interval updated to:', analysisInterval);
+      } catch (updateError) {
+        console.error('[VIDEO_ANALYSIS] Failed to update session interval:', updateError.message);
+        // Continue with the new interval even if update fails
+      }
+    }
+
+    // Determine if memory should be used (from request or session)
+    const useMemory = memory !== undefined ? memory : (analysisSession.memory === 1);
 
     let finalPrompt = prompt;
-    if (jsonOption) {
-      finalPrompt = `${prompt}
 
-Return the response strictly as a valid JSON object. Do not include any markdown, explanations, or additional text.`;
+    // CRITICAL: Build memory-enhanced prompt if memory is enabled
+    if (useMemory) {
+              console.log(`[MEMORY_LOGGING] Frame processing with memory enabled`);
+      console.log(`[MEMORY_LOGGING] Stream ID: ${streamId}`);
+
+      // Initialize buffer first to ensure it exists
+      memoryService.initializeBuffer(streamId, analysisInterval);
+
+      // Get buffer state before context building
+      const bufferBefore = memoryService.getBuffer(streamId);
+      const bufferLengthBefore = bufferBefore.length;
+      console.log(`[MEMORY_LOGGING] Buffer length before: ${bufferLengthBefore} entries`);
+
+      // Build context prompt with memory (this includes previous answers)
+      finalPrompt = memoryService.buildContextPrompt(streamId, prompt);
+
+      // Count context entries used (excluding the header lines)
+      const contextLines = finalPrompt.split('\n').filter(line => line.startsWith('- Frame T-'));
+      const contextEntriesUsed = Math.max(0, contextLines.length);
+      console.log(`[VIDEO_ANALYSIS] Memory enabled, context prompt built with ${contextEntriesUsed} context entries`);
+
+      // Log buffer state after context building
+      const bufferAfter = memoryService.getBuffer(streamId);
+      const bufferLengthAfter = bufferAfter.length;
+      console.log(`[MEMORY_LOGGING] Buffer length after context building: ${bufferLengthAfter} entries`);
+
+      // Log recent buffer entries (truncated, no images)
+      if (bufferAfter.length > 0) {
+        const recentEntries = bufferAfter.slice(-3).map(entry => ({
+          frame: entry.frame,
+          description: entry.description.substring(0, 50) + (entry.description.length > 50 ? '...' : ''),
+          timestamp: entry.timestamp
+        }));
+        console.log(`[MEMORY_LOGGING] Recent buffer entries: ${JSON.stringify(recentEntries, null, 2)}`);
+      }
+    } else {
+      console.log('[VIDEO_ANALYSIS] Memory disabled, using original prompt');
+      // When memory is OFF, use exactly the user prompt with no modifications
+      finalPrompt = prompt.trim();
+    }
+
+    // CRITICAL: Apply JSON formatting instructions if enabled
+    if (jsonOption) {
+      finalPrompt = `${finalPrompt}
+
+ONLY return your response as a raw JSON object enclosed in curly braces { } without any markdown code blocks, backticks, explanatory text, or formatting. Respond with JSON only.`;
       console.log('JSON option enabled for frame analysis', { streamId });
+
+      // Log JSON instruction for memory-enabled requests
+      if (useMemory) {
+        console.log(`[MEMORY_LOGGING] JSON instruction appended to memory-enhanced prompt`);
+      } else {
+        console.log('[VIDEO_ANALYSIS] JSON instruction appended to original prompt');
+      }
     }
 
     try {
-      console.log('Sending frame to LLaVA service', { streamId, analysisInterval });
+      console.log('Sending frame to LLaVA service', { streamId, analysisInterval, memory: useMemory });
       const result = await llavaService.analyzeFrame(frameBase64, finalPrompt, analysisInterval, streamId);
 
       const resultData = {
@@ -132,10 +220,33 @@ Return the response strictly as a valid JSON object. Do not include any markdown
 
       await VideoAnalysis.createResult(resultData);
 
-      console.log('Frame analysis completed successfully', { 
-        streamId, 
-        answerLength: result.answer?.length, 
-        processingTime: result.processingTime 
+      // CRITICAL: Store the main analysis result for next frame continuity
+      if (useMemory && result.answer && result.answer.trim().length > 0) {
+        console.log('[VIDEO_ANALYSIS] Storing main analysis result for next frame continuity');
+        memoryService.storePreviousAnswer(streamId, result.answer.trim());
+        console.log(`[MEMORY_LOGGING] Main analysis result stored: "${result.answer.substring(0, 100)}${result.answer.length > 100 ? '...' : ''}"`);
+      }
+
+      // Update memory buffer with scene description (non-blocking)
+      if (useMemory) {
+        memoryService.checkNoveltyAndGetSceneDescription(streamId, frameBase64, analysisInterval)
+          .catch(error => {
+            console.error(`[VIDEO_ANALYSIS] Memory buffer update failed for stream ${streamId}:`, error.message);
+            // Continue without disrupting main analysis
+          });
+      }
+
+      // Log memory frame processing completion
+      if (useMemory) {
+        console.log(`[MEMORY_LOGGING] Frame processing completed for stream ${streamId}`);
+        console.log(`[MEMORY_LOGGING] Frame processing completed`);
+      }
+
+      console.log('Frame analysis completed successfully', {
+        streamId,
+        answerLength: result.answer?.length,
+        processingTime: result.processingTime,
+        memory: useMemory
       });
 
       res.json({
@@ -144,6 +255,7 @@ Return the response strictly as a valid JSON object. Do not include any markdown
         nextAnalysisIn: analysisInterval,
         timestamp: new Date().toISOString(),
         jsonOption: jsonOption,
+        memory: useMemory,
         resultPreview: result.answer,
         debugInfo: {
           answerLength: result.answer?.length || 0,
@@ -152,29 +264,17 @@ Return the response strictly as a valid JSON object. Do not include any markdown
         }
       });
 
-    } catch (processingError) {
-      console.error('Frame processing error:', processingError);
-
-      await VideoAnalysis.createResult({
-        streamId,
-        answer: `Analysis failed: ${processingError.message}`,
-        accuracyScore: 0,
-        timestamp: new Date().toISOString(),
-        rawJson: JSON.stringify({ error: processingError.message })
-      });
-
+    } catch (analysisError) {
+      console.error('Frame analysis failed:', analysisError);
       res.status(500).json({
-        error: processingError.message,
-        streamId: streamId,
-        timestamp: new Date().toISOString()
+        error: analysisError.message || 'Frame analysis failed'
       });
     }
 
   } catch (error) {
-    console.error('Critical error in frame analysis:', error);
+    console.error('Error processing frame:', error);
     res.status(500).json({
-      error: error.message || 'Failed to process frame',
-      timestamp: new Date().toISOString()
+      error: error.message || 'Failed to process frame'
     });
   }
 });
@@ -423,6 +523,56 @@ router.post('/suggestions/:cameraId', async (req, res) => {
       error: 'System error in suggestion generation: ' + error.message,
       errorType: error.constructor.name,
       timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Admin endpoint to control memory logging (development/debugging only)
+router.post('/admin/memory-logging', async (req, res) => {
+  try {
+    const { sampleRate } = req.body;
+
+    if (!sampleRate || typeof sampleRate !== 'number' || sampleRate < 1) {
+      return res.status(400).json({
+        error: 'Valid sample rate (number >= 1) is required'
+      });
+    }
+
+    // Set the new sample rate
+    memoryService.setLogSampleRate(sampleRate);
+
+    // Get current configuration
+    const config = memoryService.getLogConfig();
+
+    res.json({
+      success: true,
+      message: `Memory logging sample rate updated to ${sampleRate}`,
+      config: config
+    });
+
+  } catch (error) {
+    console.error('Error updating memory logging config:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to update memory logging configuration'
+    });
+  }
+});
+
+// Admin endpoint to get current memory logging configuration
+router.get('/admin/memory-logging', async (req, res) => {
+  try {
+    const config = memoryService.getLogConfig();
+
+    res.json({
+      success: true,
+      config: config,
+      description: `Currently logging every ${config.sampleRate === 1 ? 'request' : `${config.sampleRate}th request`}`
+    });
+
+  } catch (error) {
+    console.error('Error getting memory logging config:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to get memory logging configuration'
     });
   }
 });

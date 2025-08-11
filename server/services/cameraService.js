@@ -1,4 +1,5 @@
 const Camera = require('../models/Camera');
+const { ensureMemoryColumnExists } = require('../config/database');
 
 class CameraService {
   static async createCamera(cameraData, userId) {
@@ -34,7 +35,7 @@ class CameraService {
 
   static async getAllCameras(userId) {
     try {
-      console.log('[CAMERA_SERVICE] ===== GET ALL CAMERAS START =====');
+      console.log('[CAMERA_SERVICE] Getting all cameras');
       console.log('[CAMERA_SERVICE] Service method called at:', new Date().toISOString());
       console.log('[CAMERA_SERVICE] Getting all cameras for user:', userId);
       console.log('[CAMERA_SERVICE] User ID type:', typeof userId);
@@ -44,6 +45,15 @@ class CameraService {
         console.error('[CAMERA_SERVICE] No userId provided');
         console.error('[CAMERA_SERVICE] userId is:', userId);
         throw new Error('User ID is required');
+      }
+
+      // Ensure memory column exists before querying
+      try {
+        await ensureMemoryColumnExists();
+        console.log('[CAMERA_SERVICE] Memory column verification completed');
+      } catch (error) {
+        console.warn('[CAMERA_SERVICE] Warning: Could not verify memory column:', error.message);
+        // Continue anyway - the model will handle missing columns gracefully
       }
 
       console.log('[CAMERA_SERVICE] Calling Camera.findAll...');
@@ -64,6 +74,7 @@ class CameraService {
             streamUrl: camera.streamUrl,
             status: camera.status,
             analysisInterval: camera.analysisInterval,
+            memory: camera.memory,
             createdAt: camera.createdAt
           });
         });
@@ -71,10 +82,10 @@ class CameraService {
         console.log('[CAMERA_SERVICE] No cameras found for user:', userId);
       }
 
-      console.log('[CAMERA_SERVICE] ===== GET ALL CAMERAS SUCCESS =====');
+              console.log('[CAMERA_SERVICE] All cameras retrieved successfully');
       return cameras;
     } catch (error) {
-      console.error('[CAMERA_SERVICE] ===== GET ALL CAMERAS ERROR =====');
+              console.error('[CAMERA_SERVICE] Error getting all cameras');
       console.error('[CAMERA_SERVICE] Error timestamp:', new Date().toISOString());
       console.error('[CAMERA_SERVICE] Error in getAllCameras:', error.message);
       console.error('[CAMERA_SERVICE] Error type:', error.constructor.name);
@@ -87,6 +98,16 @@ class CameraService {
   static async getCameraById(id, userId = null) {
     try {
       console.log('[CAMERA_SERVICE] Getting camera by ID:', id, 'for user:', userId);
+      
+      // Ensure memory column exists before querying
+      try {
+        await ensureMemoryColumnExists();
+        console.log('[CAMERA_SERVICE] Memory column verification completed');
+      } catch (error) {
+        console.warn('[CAMERA_SERVICE] Warning: Could not verify memory column:', error.message);
+        // Continue anyway - the model will handle missing columns gracefully
+      }
+      
       const camera = await Camera.findById(id, userId);
       if (!camera) {
         throw new Error('Camera not found or access denied');
@@ -226,6 +247,16 @@ class CameraService {
   static async getCameraSettings(id, userId) {
     try {
       console.log('[CAMERA_SERVICE] Getting camera settings:', id);
+      
+      // Ensure memory column exists before querying
+      try {
+        await ensureMemoryColumnExists();
+        console.log('[CAMERA_SERVICE] Memory column verification completed');
+      } catch (error) {
+        console.warn('[CAMERA_SERVICE] Warning: Could not verify memory column:', error.message);
+        // Continue anyway - the model will handle missing columns gracefully
+      }
+      
       const camera = await Camera.findById(id, userId);
       if (!camera) {
         throw new Error('Camera not found or access denied');
@@ -239,6 +270,7 @@ class CameraService {
         motionDetection: Boolean(camera.motionDetection),
         alertsEnabled: Boolean(camera.alertsEnabled),
         analysisInterval: camera.analysisInterval || 2,
+        memory: Boolean(camera.memory || false), // Safe fallback for missing memory field
         qualitySettings: {
           resolution: camera.resolution || '1920x1080',
           frameRate: camera.frameRate || 30,
@@ -263,7 +295,8 @@ class CameraService {
         recordingEnabled: settings.recordingEnabled,
         motionDetection: settings.motionDetection,
         alertsEnabled: settings.alertsEnabled,
-        analysisInterval: settings.analysisInterval
+        analysisInterval: settings.analysisInterval,
+        memory: settings.memory
       };
 
       if (settings.qualitySettings) {

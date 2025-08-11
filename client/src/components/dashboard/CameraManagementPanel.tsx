@@ -15,6 +15,8 @@ interface Camera {
   streamUrl: string
   status: 'connected' | 'disconnected'
   lastSeen?: string
+  analysisInterval?: number
+  memory?: boolean
 }
 
 interface CameraManagementPanelProps {
@@ -30,20 +32,13 @@ export function CameraManagementPanel({ collapsed = false, onToggle }: CameraMan
   const [hasLoaded, setHasLoaded] = useState(false)
   const { toast } = useToast()
 
-  const loadCameras = useCallback(async () => {
-    if (hasLoaded && !loading) return
-    
+  const loadCameras = async () => {
     try {
-      console.log("Loading cameras...")
       setLoading(true)
       const response = await getCameras()
       setCameras(response.cameras)
-      if (response.cameras.length > 0 && !selectedCamera) {
-        setSelectedCamera(response.cameras[0]._id)
-      }
-      setHasLoaded(true)
     } catch (error) {
-      console.error("Error loading cameras:", error)
+      console.error('Failed to load cameras:', error)
       toast({
         title: "Error",
         description: "Failed to load cameras",
@@ -52,7 +47,7 @@ export function CameraManagementPanel({ collapsed = false, onToggle }: CameraMan
     } finally {
       setLoading(false)
     }
-  }, [hasLoaded, loading, selectedCamera, toast])
+  }
 
   useEffect(() => {
     if (!hasLoaded) {

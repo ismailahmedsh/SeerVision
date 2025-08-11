@@ -74,40 +74,37 @@ export function EditCameraDialog({ open, onOpenChange, onCameraUpdated, camera }
 
   const testConnection = async (data: CameraFormData) => {
     try {
-      console.log("Testing camera connection:", data)
       setLoading(true)
+      setStep('testing')
+      
+      const testData = {
+        name: data.name,
+        type: data.type,
+        streamUrl: data.streamUrl
+      }
 
-      const response = await testCameraConnection({
-        streamUrl: data.streamUrl,
-        type: data.type
-      })
-
-      setTestResult({
-        success: response.success,
-        message: response.message
-      })
-
+      const response = await testCameraConnection(testData)
+      
       if (response.success) {
+        setStep('form')
         toast({
-          title: "Connection Successful",
-          description: "Camera stream is working properly",
+          title: "Connection Test Successful",
+          description: "Camera connection verified successfully",
         })
       } else {
+        setStep('form')
         toast({
-          title: "Connection Failed",
-          description: response.message,
+          title: "Connection Test Failed",
+          description: response.message || "Failed to connect to camera",
           variant: "destructive",
         })
       }
-    } catch (error) {
-      console.error("Error testing connection:", error)
-      setTestResult({
-        success: false,
-        message: "Failed to test connection"
-      })
+    } catch (error: any) {
+      console.error('Connection test failed:', error)
+      setStep('form')
       toast({
-        title: "Error",
-        description: "Failed to test camera connection",
+        title: "Connection Test Error",
+        description: error.message || "Failed to test connection",
         variant: "destructive",
       })
     } finally {
@@ -116,26 +113,29 @@ export function EditCameraDialog({ open, onOpenChange, onCameraUpdated, camera }
   }
 
   const onSubmit = async (data: CameraFormData) => {
-    if (!camera) return
-
     try {
-      console.log("Updating camera:", data)
       setLoading(true)
-
-      await updateCamera(camera._id, data)
-
-      handleClose()
-      onCameraUpdated()
-
-      toast({
-        title: "Success",
-        description: "Camera updated successfully",
-      })
-    } catch (error) {
-      console.error("Error updating camera:", error)
+      const response = await updateCamera(camera._id, data)
+      
+      if (response.success) {
+        toast({
+          title: "Success",
+          description: "Camera updated successfully",
+        })
+        onCameraUpdated()
+        setShowDialog(false)
+      } else {
+        toast({
+          title: "Error",
+          description: response.message || "Failed to update camera",
+          variant: "destructive",
+        })
+      }
+    } catch (error: any) {
+      console.error('Failed to update camera:', error)
       toast({
         title: "Error",
-        description: "Failed to update camera",
+        description: error.message || "Failed to update camera",
         variant: "destructive",
       })
     } finally {

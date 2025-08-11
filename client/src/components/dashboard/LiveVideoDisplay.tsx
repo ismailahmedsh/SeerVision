@@ -15,6 +15,7 @@ interface Camera {
   streamUrl: string
   status: string
   analysisInterval: number
+  memory?: boolean
 }
 
 interface LiveVideoDisplayProps {
@@ -35,6 +36,48 @@ export function LiveVideoDisplay({ selectedCameraId, onCameraChange, onCameraUpd
   useEffect(() => {
     loadCameras()
   }, [])
+
+  // Listen for global camera updates
+  useEffect(() => {
+    const handleGlobalCameraUpdate = (cameraId: string, updatedCamera: any) => {
+      
+      // Update the cameras array
+      setCameras(prevCameras => {
+        const updatedCameras = prevCameras.map(camera => 
+          camera._id === cameraId ? { ...camera, ...updatedCamera } : camera
+        )
+        return updatedCameras
+      })
+
+      // Update selectedCamera if it's the one being updated
+      if (selectedCamera && selectedCamera._id === cameraId) {
+        setSelectedCamera(prevSelected => prevSelected ? { ...prevSelected, ...updatedCamera } : null)
+      }
+    }
+
+    if (!(window as any).cameraUpdateListeners) {
+      (window as any).cameraUpdateListeners = new Set()
+    }
+
+    ;(window as any).cameraUpdateListeners.add(handleGlobalCameraUpdate)
+
+    ;(window as any).notifyAllComponentsCameraUpdate = (cameraId: string, updatedCamera: any) => {
+      ;(window as any).cameraUpdateListeners.forEach((listener: Function) => {
+        try {
+          listener(cameraId, updatedCamera)
+        } catch (error) {
+          console.error('Error in camera update listener:', error)
+        }
+      })
+    }
+
+    // Cleanup function
+    return () => {
+      if ((window as any).cameraUpdateListeners) {
+        ;(window as any).cameraUpdateListeners.delete(handleGlobalCameraUpdate)
+      }
+    }
+  }, [selectedCamera])
 
   useEffect(() => {
     if (selectedCameraId && cameras.length > 0) {
@@ -58,13 +101,28 @@ export function LiveVideoDisplay({ selectedCameraId, onCameraChange, onCameraUpd
   const loadCameras = async () => {
     try {
       setLoading(true)
+      
       const response = await getCameras()
-      setCameras(response.cameras || [])
+      
+      const updatedCameras = response.cameras || []
+      
+      setCameras(updatedCameras)
+
+      // Update selectedCamera if it exists in the updated cameras
+      if (selectedCameraId) {
+        const updatedSelectedCamera = updatedCameras.find((c: any) => c._id === selectedCameraId)
+        
+        if (updatedSelectedCamera) {
+          setSelectedCamera(updatedSelectedCamera)
+        }
+      }
+      
     } catch (error: any) {
+      console.error('Failed to load cameras:', error)
       toast({
         title: "Error",
-        description: error.message || "Failed to load cameras",
-        variant: "destructive"
+        description: "Failed to load cameras",
+        variant: "destructive",
       })
     } finally {
       setLoading(false)
@@ -130,13 +188,16 @@ export function LiveVideoDisplay({ selectedCameraId, onCameraChange, onCameraUpd
     setIsStreaming(false)
   }
 
-  const handleSettingsSaved = () => {
-    loadCameras()
-    onCameraUpdated?.()
-    toast({
-      title: "Settings Saved",
-      description: "Camera settings have been updated",
-    })
+  const handleSettingsSaved = async () => {
+    try {
+      await loadCameras()
+      
+      if (onCameraUpdated) {
+        onCameraUpdated()
+      }
+    } catch (error) {
+      console.error('Failed to refresh camera data after settings save:', error)
+    }
   }
 
   return (
@@ -262,7 +323,7 @@ export function LiveVideoDisplay({ selectedCameraId, onCameraChange, onCameraUpd
           camera={selectedCamera}
           open={settingsOpen}
           onOpenChange={setSettingsOpen}
-          onSaved={handleSettingsSaved}
+          onCameraUpdated={handleSettingsSaved}
         />
       )}
     </Card>

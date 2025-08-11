@@ -17,6 +17,8 @@ interface Camera {
   streamUrl: string
   status: 'connected' | 'disconnected'
   lastSeen?: string
+  analysisInterval?: number
+  memory?: boolean
 }
 
 export function Cameras() {

@@ -42,20 +42,17 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const loadSettings = async () => {
     try {
-      setLoading(true)
       const response = await getSettings()
-      
-      // Ensure analysis interval meets minimum requirement
-      if (response.settings.analysis.defaultInterval < 6) {
-        console.log('[SETTINGS_CONTEXT] Adjusting analysis interval from', response.settings.analysis.defaultInterval, 'to 6 seconds (minimum)')
-        response.settings.analysis.defaultInterval = 6
+      if (response && typeof response === 'object' && 'success' in response && response.success && 'settings' in response && response.settings) {
+        const settingsData = response.settings as SettingsData
+        let adjustedInterval = settingsData.analysis?.defaultInterval || 30
+        if (adjustedInterval < 6) {
+          adjustedInterval = 6
+        }
+        setSettings(settingsData)
       }
-      
-      setSettings(response.settings)
     } catch (error) {
-      console.error("Error loading settings:", error)
-    } finally {
-      setLoading(false)
+      console.error('Failed to load settings:', error)
     }
   }
 
@@ -68,7 +65,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     
     // Enforce minimum analysis interval
     if (section === 'analysis' && key === 'defaultInterval' && value < 6) {
-      console.log('[SETTINGS_CONTEXT] Enforcing minimum analysis interval of 6 seconds, got:', value)
       value = 6
     }
     
@@ -93,6 +89,33 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const refreshSettings = async () => {
     await loadSettings()
+  }
+
+  const updateAnalysisInterval = async (value: number) => {
+    try {
+      const enforcedValue = Math.max(6, value)
+      const response = await updateSettings({
+        analysis: {
+          ...settings?.analysis,
+          defaultInterval: enforcedValue
+        }
+      })
+      
+      if (response && typeof response === 'object' && 'success' in response && response.success) {
+        setSettings(prev => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            analysis: {
+              ...prev.analysis,
+              defaultInterval: enforcedValue
+            }
+          }
+        })
+      }
+    } catch (error) {
+      console.error('Failed to update analysis interval:', error)
+    }
   }
 
   return (

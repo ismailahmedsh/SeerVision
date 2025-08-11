@@ -39,15 +39,13 @@ export function Register() {
         description: "Account created successfully",
       })
       navigate("/login")
-    } catch (error) {
-      console.log("Register error:", error)
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error?.message,
-      })
-    } finally {
+    } catch (error: any) {
       setLoading(false)
+      toast({
+        title: "Registration Failed",
+        description: error.message || "Failed to create account",
+        variant: "destructive",
+      })
     }
   }
 

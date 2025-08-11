@@ -10,10 +10,10 @@ class FrameCaptureService {
   async captureFrameFromStream(cameraId, streamUrl, streamType) {
     const captureStartTime = Date.now();
     try {
-      console.log('[FRAME_CAPTURE] ===== CAPTURE FRAME START =====');
+      console.log('[FRAME_CAPTURE] Capturing frame');
       console.log('[FRAME_CAPTURE] Capturing frame from camera:', cameraId, 'type:', streamType);
       console.log('[FRAME_CAPTURE] Stream URL:', streamUrl);
-      console.log('[FRAME_CAPTURE] ⏱️ PROFILING: Frame capture started at:', new Date().toISOString());
+      console.log('[FRAME_CAPTURE] Frame capture started');
 
       // For USB cameras, we cannot capture frames server-side
       // Return a meaningful message instead of a placeholder
@@ -30,7 +30,7 @@ class FrameCaptureService {
       // Use the frame capture endpoint for non-USB cameras
       try {
         const endpointRequestStart = Date.now();
-        console.log('[FRAME_CAPTURE] ⏱️ PROFILING: Frame endpoint request started');
+        console.log('[FRAME_CAPTURE] Frame endpoint request started');
         console.log('[FRAME_CAPTURE] Using dedicated frame capture endpoint');
 
         const frameResponse = await axios.get(`http://localhost:${process.env.PORT || 3000}/api/cameras/${cameraId}/frame`, {
@@ -38,7 +38,7 @@ class FrameCaptureService {
         });
 
         const endpointRequestTime = Date.now() - endpointRequestStart;
-        console.log('[FRAME_CAPTURE] ⏱️ PROFILING: Frame endpoint request completed in:', endpointRequestTime, 'ms');
+        console.log('[FRAME_CAPTURE] Frame endpoint request completed');
         console.log('[FRAME_CAPTURE] Frame endpoint response:', frameResponse.data.success);
 
         if (!frameResponse.data.success) {
@@ -50,7 +50,7 @@ class FrameCaptureService {
         frameBuffer = Buffer.from(frameResponse.data.frame, 'base64');
         const bufferConversionTime = Date.now() - bufferConversionStart;
 
-        console.log('[FRAME_CAPTURE] ⏱️ PROFILING: Buffer conversion completed in:', bufferConversionTime, 'ms');
+        console.log('[FRAME_CAPTURE] Buffer conversion completed');
         console.log('[FRAME_CAPTURE] Frame buffer created from endpoint, size:', frameBuffer.length);
 
       } catch (endpointError) {
@@ -58,22 +58,22 @@ class FrameCaptureService {
         
         // For non-USB cameras, create a generic placeholder on endpoint failure
         const placeholderStart = Date.now();
-        console.log('[FRAME_CAPTURE] ⏱️ PROFILING: Endpoint failed, creating placeholder');
+        console.log('[FRAME_CAPTURE] Endpoint failed, creating placeholder');
         console.log('[FRAME_CAPTURE] Creating generic placeholder due to endpoint failure');
         frameBuffer = await this.createPlaceholderFrame();
         
         const placeholderTime = Date.now() - placeholderStart;
-        console.log('[FRAME_CAPTURE] ⏱️ PROFILING: Placeholder creation completed in:', placeholderTime, 'ms');
+        console.log('[FRAME_CAPTURE] Placeholder creation completed');
       }
 
       // Process and optimize the frame
       const processingStart = Date.now();
-      console.log('[FRAME_CAPTURE] ⏱️ PROFILING: Frame processing started');
+      console.log('[FRAME_CAPTURE] Frame processing started');
 
       const processedFrame = await this.processFrame(frameBuffer);
 
       const processingTime = Date.now() - processingStart;
-      console.log('[FRAME_CAPTURE] ⏱️ PROFILING: Frame processing completed in:', processingTime, 'ms');
+      console.log('[FRAME_CAPTURE] Frame processing completed');
       console.log('[FRAME_CAPTURE] Frame processed, final size:', processedFrame.length);
 
       // Determine if this is a placeholder
@@ -90,20 +90,15 @@ class FrameCaptureService {
       const cachingTime = Date.now() - cachingStart;
 
       const totalCaptureTime = Date.now() - captureStartTime;
-      console.log('[FRAME_CAPTURE] ⏱️ PROFILING: === FRAME CAPTURE TIMING BREAKDOWN ===');
-      console.log('[FRAME_CAPTURE] ⏱️ PROFILING: 1. Frame Capture Time:', totalCaptureTime, 'ms');
-      console.log('[FRAME_CAPTURE] ⏱️ PROFILING: 2. Frame Processing Time:', processingTime, 'ms');
-      console.log('[FRAME_CAPTURE] ⏱️ PROFILING: 3. Frame Caching Time:', cachingTime, 'ms');
-      console.log('[FRAME_CAPTURE] ⏱️ PROFILING: 4. Is Placeholder:', isPlaceholder);
-      console.log('[FRAME_CAPTURE] ⏱️ PROFILING: === END FRAME TIMING ===');
+              console.log('[FRAME_CAPTURE] Frame capture completed');
 
       console.log('[FRAME_CAPTURE] Frame cached for camera:', cameraId, 'isPlaceholder:', isPlaceholder);
-      console.log('[FRAME_CAPTURE] ===== CAPTURE FRAME SUCCESS =====');
+              console.log('[FRAME_CAPTURE] Frame captured successfully');
       return processedFrame.toString('base64');
 
     } catch (error) {
       const totalCaptureTime = Date.now() - captureStartTime;
-      console.error('[FRAME_CAPTURE] ===== CAPTURE FRAME FAILED =====');
+              console.error('[FRAME_CAPTURE] Frame capture failed');
       console.error('[FRAME_CAPTURE] Error capturing frame:', error.message);
       console.error('[FRAME_CAPTURE] Error stack:', error.stack);
       console.error('[FRAME_CAPTURE] ⏱️ PROFILING: Frame capture failed after:', totalCaptureTime, 'ms');
@@ -119,7 +114,7 @@ class FrameCaptureService {
       const placeholderFrame = await this.createErrorPlaceholderFrame(error.message);
       const placeholderTime = Date.now() - placeholderStart;
 
-      console.log('[FRAME_CAPTURE] ⏱️ PROFILING: Error placeholder created in:', placeholderTime, 'ms');
+              console.log('[FRAME_CAPTURE] Error placeholder created');
 
       this.frameCache.set(cameraId, {
         data: placeholderFrame,

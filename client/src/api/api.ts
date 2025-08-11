@@ -1,17 +1,26 @@
 import axios from 'axios';
 
+// Set explicit baseURL for development to avoid proxy issues
+const isDevelopment = import.meta.env.DEV;
+const baseURL = isDevelopment ? 'http://localhost:3000' : '';
+
 const api = axios.create({
-  baseURL: '',
+  baseURL,
   timeout: 35000, // Increased to 35 seconds to accommodate backend processing + retry
 });
 
-// Request interceptor to add auth token
+// Request interceptor to add auth token and log requests
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('accessToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    
+    // Log the resolved URL for debugging
+    const resolvedURL = config.baseURL ? `${config.baseURL}${config.url}` : config.url;
+    console.log(`[API] Request: ${config.method?.toUpperCase()} ${resolvedURL}`);
+    
     return config;
   },
   (error) => {
@@ -19,13 +28,18 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor to handle token refresh
+// Response interceptor to handle token refresh and better error logging
 api.interceptors.response.use(
   (response) => {
     return response;
   },
   async (error) => {
     const originalRequest = error.config;
+    
+    // Log error details for debugging
+    console.error(`[API] Response error: ${error.response?.status} ${error.response?.statusText}`);
+    console.error(`[API] URL: ${originalRequest?.url}`);
+    console.error(`[API] Error message: ${error.message}`);
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;

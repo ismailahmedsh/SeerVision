@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 
 const authenticateToken = (req, res, next) => {
-  console.log('[AUTH_MIDDLEWARE] ===== AUTHENTICATE TOKEN START =====');
+      console.log('[AUTH_MIDDLEWARE] Authenticating token');
   console.log('[AUTH_MIDDLEWARE] Request URL:', req.url);
   console.log('[AUTH_MIDDLEWARE] Request method:', req.method);
   console.log('[AUTH_MIDDLEWARE] Request headers:', req.headers);
@@ -25,10 +25,10 @@ const authenticateToken = (req, res, next) => {
 
     req.user = decoded;
     console.log('[AUTH_MIDDLEWARE] User set in request:', req.user);
-    console.log('[AUTH_MIDDLEWARE] ===== AUTHENTICATE TOKEN SUCCESS =====');
+    console.log('[AUTH_MIDDLEWARE] Token authenticated successfully');
     next();
   } catch (error) {
-    console.error('[AUTH_MIDDLEWARE] ===== AUTHENTICATE TOKEN ERROR =====');
+            console.error('[AUTH_MIDDLEWARE] Token authentication failed');
     console.error('[AUTH_MIDDLEWARE] Token verification failed:', error.message);
     console.error('[AUTH_MIDDLEWARE] Error details:', error);
     

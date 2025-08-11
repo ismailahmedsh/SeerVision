@@ -3,13 +3,14 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Play, Square, Lightbulb, CheckCircle, AlertCircle, Clock } from "lucide-react"
+import { Loader2, Play, Square, Lightbulb, AlertCircle, Clock } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { toast } from "@/hooks/useToast"
 import { getCameras } from "@/api/cameras"
 import { startAnalysisStream, stopAnalysisStream, sendFrameForAnalysis, getPromptSuggestions } from "@/api/analysis"
+import { cleanupInFlightRequests } from "../../lib/retryUtils"
 
 interface AnalysisResult {
   timestamp: string
@@ -24,6 +25,7 @@ interface Camera {
   streamUrl: string
   status: string
   analysisInterval: number
+  memory?: boolean
 }
 
 interface AnalysisPanelProps {
@@ -50,7 +52,7 @@ const syntaxHighlightJson = (json: string): string => {
       } else if (/\d/.test(match)) {
         cls = 'text-orange-600 dark:text-orange-400';
       }
-      return `<span class="${cls}">${match}</span>`;
+      return '<span class="' + cls + '">' + match + '</span>';
     }
   );
 };
@@ -100,16 +102,70 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
 
   const selectedCamera = cameras.find(c => c._id === selectedCameraId)
 
+  // Load cameras initially
   useEffect(() => {
     const loadCameras = async () => {
       try {
         const response = await getCameras()
-        setCameras(response.cameras || [])
-      } catch (error: any) {
+        const cameras = response.cameras || []
+        setCameras(cameras)
+      } catch (error) {
         console.error('Failed to load cameras:', error)
       }
     }
     loadCameras()
+  }, [])
+
+  // Reload cameras when cameraUpdateTrigger changes
+  useEffect(() => {
+    if (cameraUpdateTrigger && cameraUpdateTrigger > 0) {
+      const reloadCameras = async () => {
+        try {
+          const response = await getCameras()
+          const updatedCameras = response.cameras || []
+          setCameras(updatedCameras)
+        } catch (error) {
+          console.error('Failed to reload cameras:', error)
+        }
+      }
+      reloadCameras()
+    }
+  }, [cameraUpdateTrigger])
+
+  // Listen for global camera updates
+  useEffect(() => {
+    const handleGlobalCameraUpdate = (cameraId: string, updatedCamera: any) => {
+      // Update the cameras array with the new data
+      setCameras(prevCameras => {
+        const updatedCameras = prevCameras.map(camera =>
+          camera._id === cameraId ? { ...camera, ...updatedCamera } : camera
+        )
+        return updatedCameras
+      })
+    }
+
+    if (!(window as any).cameraUpdateListeners) {
+      (window as any).cameraUpdateListeners = new Set()
+    }
+
+    ;(window as any).cameraUpdateListeners.add(handleGlobalCameraUpdate)
+
+    ;(window as any).notifyAllComponentsCameraUpdate = (cameraId: string, updatedCamera: any) => {
+      ;(window as any).cameraUpdateListeners.forEach((listener: Function) => {
+        try {
+          listener(cameraId, updatedCamera)
+        } catch (error) {
+          console.error('Error in camera update listener:', error)
+        }
+      })
+    }
+
+    // Cleanup function
+    return () => {
+      if ((window as any).cameraUpdateListeners) {
+        ;(window as any).cameraUpdateListeners.delete(handleGlobalCameraUpdate)
+      }
+    }
   }, [])
 
   useEffect(() => {
@@ -118,6 +174,10 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
 
       setSuggestionsError(null)
       setSuggestions([])
+
+      // Clear any existing loading state
+      suggestionsLoadingRef.current = false
+      setLoadingSuggestions(false)
 
       if (selectedCamera && (selectedCamera.type === 'usb' || selectedCamera.streamUrl?.startsWith('usb:'))) {
         setTimeout(() => {
@@ -129,8 +189,25 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
     } else {
       setSuggestions([])
       setSuggestionsError(null)
+      // Clear loading state when no camera selected
+      suggestionsLoadingRef.current = false
+      setLoadingSuggestions(false)
     }
   }, [selectedCameraId, cameras])
+
+  // Cleanup effect for component unmount
+  useEffect(() => {
+    return () => {
+      // Clear any intervals
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+
+      // Clean up in-flight requests
+      cleanupInFlightRequests()
+    }
+  }, [])
 
   const loadSuggestionsWithRetry = async () => {
     if (suggestionsLoadingRef.current) {
@@ -152,14 +229,6 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
     setLoadingSuggestions(true)
     setSuggestionsError(null)
 
-    let accumulatedSuggestions: string[] = []
-
-    const retryAttempts = [
-      { maxSuggestions: 5, attemptName: 'Initial request' },
-      { maxSuggestions: 3, attemptName: 'Retry 1' },
-      { maxSuggestions: 2, attemptName: 'Retry 2' }
-    ]
-
     try {
       let frameBase64: string | undefined
 
@@ -167,55 +236,28 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
         try {
           frameBase64 = await captureFrameFromVideo()
         } catch (frameError) {
+          console.error('Failed to capture frame for suggestions:', frameError)
           setSuggestionsError("Unable to capture frame from camera")
           return
         }
       }
 
-      for (let i = 0; i < retryAttempts.length; i++) {
-        try {
-          const response = await getPromptSuggestions(selectedCameraId, frameBase64, currentSelectedCamera)
+      // Use the smart retry logic from the API layer
+      const result = await getPromptSuggestions(selectedCameraId, frameBase64, currentSelectedCamera)
 
-          if (response.data?.suggestions && Array.isArray(response.data.suggestions)) {
-            const newSuggestions = response.data.suggestions
-            const uniqueNewSuggestions = newSuggestions.filter(s => !accumulatedSuggestions.includes(s))
-            accumulatedSuggestions = [...accumulatedSuggestions, ...uniqueNewSuggestions]
 
-            if (accumulatedSuggestions.length >= 3) {
-              setSuggestions(accumulatedSuggestions)
-              setSuggestionsError(null)
-              return
-            }
 
-            if (i === retryAttempts.length - 1) {
-              if (accumulatedSuggestions.length > 0) {
-                setSuggestions(accumulatedSuggestions)
-                setSuggestionsError(null)
-              } else {
-                setSuggestions([])
-                setSuggestionsError("Unable to retrieve suggestions")
-              }
-              return
-            }
-          }
-
-        } catch (attemptError: any) {
-          if (i === retryAttempts.length - 1) {
-            if (accumulatedSuggestions.length > 0) {
-              setSuggestions(accumulatedSuggestions)
-              setSuggestionsError(null)
-            } else {
-              setSuggestions([])
-              setSuggestionsError("Unable to retrieve suggestions")
-            }
-            return
-          }
-
-          await new Promise(resolve => setTimeout(resolve, 2000))
-        }
+      if (result.success && result.data?.data?.success && result.data?.data?.suggestions) {
+        const suggestions = result.data.data.suggestions
+        setSuggestions(suggestions)
+        setSuggestionsError(null)
+      } else {
+        setSuggestions([])
+        setSuggestionsError(result.error || result.data?.data?.error || "Unable to retrieve suggestions")
       }
 
     } catch (error: any) {
+      console.error('Error loading suggestions:', error)
       setSuggestions([])
       setSuggestionsError("Unable to retrieve suggestions")
     } finally {
@@ -265,7 +307,8 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
             .then(() => {
               proceedWithCapture()
             })
-            .catch((playError) => {
+            .catch(() => {
+              // Continue with capture even if play fails
               proceedWithCapture()
             })
         } else {
@@ -304,7 +347,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
 
           try {
             context.drawImage(videoElement!, 0, 0, newWidth, newHeight)
-          } catch (drawError) {
+          } catch (drawError: any) {
             reject(new Error('Failed to draw video frame to canvas: ' + drawError.message))
             return
           }
@@ -335,6 +378,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
         }
 
       } catch (error) {
+        console.error('Error in captureFrameFromVideo:', error)
         reject(error)
       }
     })
@@ -389,12 +433,12 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
         cameraId: selectedCameraId,
         prompt: prompt.trim(),
         analysisInterval: cameraInterval,
-        jsonOption: jsonOutput
+        jsonOption: jsonOutput,
+        memory: selectedCamera?.memory ?? false
       })
 
       if (response.data?.streamId) {
         setCurrentStreamId(response.data.streamId)
-
         toast({
           title: "Analysis Started",
           description: "Analysis stream started" + (jsonOutput ? ' with JSON output' : '') + " (" + cameraInterval + "s intervals)",
@@ -403,6 +447,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
         startAnalysisLoop(response.data.streamId, cameraInterval)
       }
     } catch (error: any) {
+      console.error('Failed to start analysis:', error)
       toast({
         title: "Error",
         description: error.message || "Failed to start analysis",
@@ -434,6 +479,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
         description: "Video analysis has been stopped",
       })
     } catch (error: any) {
+      console.error('Failed to stop analysis:', error)
       toast({
         title: "Error",
         description: error.message || "Failed to stop analysis",
@@ -461,6 +507,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
           frameBase64 = await captureFrameFromVideo()
           frameRetryCount.current = 0
         } catch (frameError) {
+          console.error('Frame capture failed:', frameError)
           frameRetryCount.current++
           if (frameRetryCount.current >= maxFrameRetries) {
             toast({
@@ -478,8 +525,9 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
           const analysisResponse = await sendFrameForAnalysis({
             streamId,
             frameBase64,
-            prompt: jsonOutput ? `${prompt.trim()}\n\nONLY return your response as a raw JSON object enclosed in curly braces { } without any markdown code blocks, backticks, explanatory text, or formatting. Respond with JSON only.` : prompt.trim(),
-            jsonOption: jsonOutput
+            prompt: jsonOutput ? prompt.trim() + '\n\nONLY return your response as a raw JSON object enclosed in curly braces without any markdown code blocks, backticks, explanatory text, or formatting. Respond with JSON only.' : prompt.trim(),
+            jsonOption: jsonOutput,
+            memory: selectedCamera?.memory ?? false
           })
 
           const processingTime = Date.now() - analysisStartTime
@@ -501,24 +549,17 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
           }
 
         } catch (analysisError: any) {
-          const processingTime = Date.now() - analysisStartTime
-          setLastAnalysisTime(processingTime)
-
-          if (analysisError.message?.includes('timeout') || processingTime > (intervalSeconds * 1000)) {
-            setConsecutiveTimeouts(prev => prev + 1)
-
-            if (consecutiveTimeouts + 1 >= maxConsecutiveTimeouts) {
-              toast({
-                title: "Performance Warning",
-                description: "Model is consistently taking longer than " + intervalSeconds + "s interval. Consider increasing the interval for better reliability.",
-                variant: "default"
-              })
-              setConsecutiveTimeouts(0)
-            }
-          }
+          console.error('Analysis failed:', analysisError.message || 'Unknown error')
+          setResults(prev => [{
+            timestamp: new Date().toISOString(),
+            answer: `Analysis failed: ${analysisError.message || 'Unknown error'}`,
+            confidence: 0
+          }, ...prev.slice(0, 9)])
+        } finally {
+          setIsProcessingFrame(false)
         }
-
-      } finally {
+      } catch (error: any) {
+        console.error('Analysis loop failed:', error.message || 'Unknown error')
         setIsProcessingFrame(false)
       }
     }
@@ -539,10 +580,9 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
           return (
             <div
               key={result.timestamp}
-              className={`p-4 rounded-lg border ${
-                isLatest
-                  ? 'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800'
-                  : 'bg-muted/50 border-muted'
+              className={`p-4 rounded-lg border ${isLatest
+                ? 'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800'
+                : 'bg-muted/50 border-muted'
               }`}
             >
               <div className="flex justify-between items-center mb-2">
@@ -575,10 +615,9 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
     return (
       <div
         key={result.timestamp}
-        className={`p-4 rounded-lg border ${
-          isLatest
-            ? 'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800'
-            : 'bg-muted/50 border-muted'
+        className={`p-4 rounded-lg border ${isLatest
+          ? 'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800'
+          : 'bg-muted/50 border-muted'
         }`}
       >
         <div className="flex justify-between items-center mb-2">
@@ -611,13 +650,26 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
 
         <CardContent className="space-y-4">
           {selectedCameraId && selectedCamera && (
-            <div className="flex items-center gap-2 text-sm">
-              <Badge variant={selectedCamera.status === 'connected' ? 'default' : 'secondary'}>
-                {selectedCamera.name}
-              </Badge>
-              <span className="text-muted-foreground">
-                {selectedCamera.analysisInterval}s intervals
-              </span>
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2">
+                <Badge variant={selectedCamera.status === 'connected' ? 'default' : 'secondary'}>
+                  {selectedCamera.name}
+                </Badge>
+                <span className="text-muted-foreground">
+                  {selectedCamera.analysisInterval}s intervals
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground text-xs">Memory</span>
+                <div
+                  className={`w-2 h-2 rounded-full ${
+                    selectedCamera.memory
+                      ? 'bg-green-500 animate-pulse'
+                      : 'bg-red-500 animate-pulse'
+                  }`}
+                  title={selectedCamera.memory ? 'Memory is ON' : 'Memory is OFF'}
+                />
+              </div>
             </div>
           )}
 
@@ -673,97 +725,81 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
                       variant="outline"
                       size="sm"
                       onClick={() => setPrompt(suggestion)}
-                      disabled={isAnalyzing}
-                      className="text-xs h-7"
+                      className="text-xs"
                     >
                       {suggestion}
                     </Button>
                   ))}
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No suggestions available</p>
-              )}
+              ) : null}
             </div>
           )}
 
-          <div className="flex gap-2">
+          <div className="flex items-center gap-4">
             {!isAnalyzing ? (
               <Button
                 onClick={startAnalysis}
                 disabled={!selectedCameraId || !prompt.trim()}
-                className="flex-1"
+                className="flex items-center gap-2"
               >
-                <Play className="w-4 h-4 mr-2" />
+                <Play className="w-4 h-4" />
                 Start Analysis
               </Button>
             ) : (
               <Button
                 onClick={stopAnalysis}
                 variant="destructive"
-                className="flex-1"
+                className="flex items-center gap-2"
               >
-                <Square className="w-4 h-4 mr-2" />
+                <Square className="w-4 h-4" />
                 Stop Analysis
               </Button>
             )}
           </div>
+
+          {isAnalyzing && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Analyzing video stream...</span>
+                {lastAnalysisTime > 0 && (
+                  <span className="text-muted-foreground">
+                    Last frame: {lastAnalysisTime}ms
+                  </span>
+                )}
+              </div>
+              {consecutiveTimeouts > 0 && (
+                <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
+                  <AlertCircle className="w-4 h-4" />
+                  <span>{consecutiveTimeouts} consecutive timeouts</span>
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      <Card className="flex-1 min-h-0 max-h-[500px] flex flex-col">
-        <CardHeader className="flex-shrink-0 pb-3">
+      <Card className="flex-1">
+        <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2">
-            <CheckCircle className="w-5 h-5" />
-            Live Results
-            {isAnalyzing && (
-              <div className="flex items-center gap-2 ml-auto">
-                {isProcessingFrame ? (
-                  <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Processing...
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                    <Clock className="w-4 h-4" />
-                    Waiting for next frame
-                  </div>
-                )}
-                {lastAnalysisTime > 0 && (
-                  <Badge variant="outline" className="text-xs">
-                    {(lastAnalysisTime / 1000).toFixed(1)}s
-                  </Badge>
-                )}
-              </div>
-            )}
+            <Clock className="w-5 h-5" />
+            Live Results {results.length > 0 && `(${results.length})`}
           </CardTitle>
         </CardHeader>
-
-        <CardContent className="flex-1 min-h-0 p-0">
-          <div className="h-full max-h-[400px]">
-            <ScrollArea className="h-full">
-              <div className="p-4 space-y-4">
-                {!isAnalyzing && results.length === 0 && (
-                  <div className="flex flex-col items-center justify-center h-32 text-center">
-                    <AlertCircle className="w-8 h-8 text-muted-foreground mb-2" />
-                    <p className="text-sm text-muted-foreground">
-                      Start analysis to see live results
-                    </p>
+        <CardContent>
+          <ScrollArea className="h-[calc(90vh-40rem)]">
+            <div className="space-y-4">
+              {results.length > 0 ? (
+                results.map((result, index) => renderResult(result, index))
+              ) : (
+                <div className="flex items-center justify-center h-32 text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <span>No analysis results yet. Start analysis to see live results here.</span>
                   </div>
-                )}
-
-                {isAnalyzing && results.length === 0 && (
-                  <div className="flex flex-col items-center justify-center h-32 text-center">
-                    <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mb-2" />
-                    <p className="text-sm text-muted-foreground">
-                      Analysis in progress...
-                    </p>
-                  </div>
-                )}
-
-                {results.map((result, index) => renderResult(result, index))}
-              </div>
-            </ScrollArea>
-          </div>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
         </CardContent>
       </Card>
     </div>

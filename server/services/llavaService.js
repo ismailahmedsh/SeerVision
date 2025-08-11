@@ -1,21 +1,45 @@
 const axios = require('axios');
 const sharp = require('sharp');
+const http = require('http');
+const https = require('https');
 
 class LLaVAService {
   constructor() {
     this.ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434';
     this.model = 'llava:7b';
     this.fastModel = 'llava:7b-v1.5-q4_0';
-    this.timeout = 25000;
-    this.suggestionTimeout = 25000;
+    this.timeout = 0; // Remove hard timeout for testing
+    this.suggestionTimeout = 0; // Remove hard timeout for testing
     this.activeRequests = new Map();
     this.suggestionCache = new Map();
     this.backgroundSuggestionQueue = new Map();
 
+    // Concurrency control
+    this.maxConcurrency = parseInt(process.env.ANALYSIS_MAX_CONCURRENCY) || 2;
+    this.activeAnalysisCount = 0;
+    this.analysisQueue = [];
+
+    // Create HTTP agents with keep-alive for better connection reuse
+    this.httpAgent = new http.Agent({
+      keepAlive: true,
+      keepAliveMsecs: 30000,
+      maxSockets: 10,
+      maxFreeSockets: 5,
+      timeout: 0
+    });
+
+    this.httpsAgent = new https.Agent({
+      keepAlive: true,
+      keepAliveMsecs: 30000,
+      maxSockets: 10,
+      maxFreeSockets: 5,
+      timeout: 0
+    });
+
     this.contextualFallbacks = {
       indoor: [
         'Count people present',
-        'Check door status', 
+        'Check door status',
         'Identify objects visible',
         'Describe lighting conditions',
         'Find any movement',
@@ -38,24 +62,35 @@ class LLaVAService {
         'Find notable features'
       ]
     };
+
+    console.log(`[LLAVA_SERVICE] Initialized with NO TIMEOUTS for all requests`);
+    console.log(`[LLAVA_SERVICE] HTTP agents configured with keep-alive`);
   }
 
-  async preprocessFrame(frameBase64) {
+  async preprocessFrame(frameBase64, targetSize = 256) {
     try {
       const frameBuffer = Buffer.from(frameBase64, 'base64');
 
+      // Optimize for model processing - keep quality but reduce size
       const optimizedBuffer = await sharp(frameBuffer)
-        .resize(256, 256, {
+        .resize(targetSize, targetSize, {
           fit: 'inside',
           withoutEnlargement: false
         })
         .jpeg({
-          quality: 70,
+          quality: 85, // Higher quality for better model performance
           progressive: false
         })
         .toBuffer();
 
       const optimizedBase64 = optimizedBuffer.toString('base64');
+
+      // Target ≤200KB as specified
+      if (optimizedBuffer.length > 200 * 1024 && targetSize > 128) {
+        // Recursively reduce size if too large
+        return await this.preprocessFrame(frameBase64, Math.floor(targetSize * 0.8));
+      }
+
       return optimizedBase64;
     } catch (error) {
       console.error('Frame preprocessing failed:', error.message);
@@ -63,23 +98,64 @@ class LLaVAService {
     }
   }
 
+  async analyzeFrameWithQueue(frameBase64, prompt, intervalSeconds = 30, streamId = null) {
+    // Check concurrency limit
+    if (this.activeAnalysisCount >= this.maxConcurrency) {
+      // Apply backpressure - reject instead of queuing
+      throw new Error(`Analysis queue full (${this.activeAnalysisCount}/${this.maxConcurrency}). Dropping frame to prevent overload.`);
+    }
+
+    this.activeAnalysisCount++;
+
+    try {
+      return await this.analyzeFrame(frameBase64, prompt, intervalSeconds, streamId);
+    } finally {
+      this.activeAnalysisCount--;
+    }
+  }
+
   async analyzeFrame(frameBase64, prompt, intervalSeconds = 30, streamId = null) {
     const analysisStartTime = Date.now();
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const isSuggestionRequest = streamId === 'suggestions' ||
                                (streamId && streamId.startsWith('suggestion')) ||
                                (streamId && streamId.startsWith('background'));
 
+    // CRITICAL: Detect novelty requests
+    const isNoveltyRequest = streamId && (
+      streamId.includes('_novelty') ||
+      streamId.endsWith('_novelty_first') ||
+      streamId.endsWith('_novelty_async') ||
+      streamId.endsWith('_novelty_first_async') ||
+      streamId.endsWith('_novelty_async_late')
+    );
+
+    console.log(`[LLAVA_SERVICE] [${requestId}] Starting ${isNoveltyRequest ? 'novelty' : isSuggestionRequest ? 'suggestion' : 'analysis'} request`);
+
+    if (isNoveltyRequest) {
+      console.log(`[LLAVA_SERVICE] [${requestId}] NOVELTY REQUEST DETECTED - UNLIMITED TIME`);
+    }
+
     if (!isSuggestionRequest && streamId && this.activeRequests.has(streamId)) {
       const activeRequest = this.activeRequests.get(streamId);
       const requestAge = Date.now() - activeRequest.startTime;
+
+      // Check if this is a memory-related request
+      if (streamId && streamId.includes('_novelty')) {
+        console.log(`[MEMORY_LOGGING] NOVELTY_SKIPPED_DUE_TO_QUEUE: Stream ${streamId} dropped due to main analysis in progress (${Math.round(requestAge/1000)}s)`);
+      } else {
+        console.log(`[VIDEO_ANALYSIS] Frame dropped: previous analysis still in progress (${Math.round(requestAge/1000)}s)`);
+      }
+
       throw new Error(`Frame dropped: previous analysis still in progress (${Math.round(requestAge/1000)}s)`);
     }
 
     if (!isSuggestionRequest && streamId) {
       this.activeRequests.set(streamId, {
         startTime: analysisStartTime,
-        prompt: prompt.substring(0, 50) + '...'
+        prompt: prompt.substring(0, 50) + '...',
+        requestId: requestId
       });
     }
 
@@ -88,8 +164,9 @@ class LLaVAService {
         throw new Error('Invalid or too small frame data');
       }
 
-      const optimizedFrame = await this.preprocessFrame(frameBase64);
-      const timeoutMs = this.timeout;
+      // Optimize frame processing
+      const optimizedFrame = await this.preprocessFrame(frameBase64, 256);
+
       const modelToUse = this.model;
 
       const requestData = {
@@ -109,19 +186,63 @@ class LLaVAService {
         }
       };
 
-      const response = await Promise.race([
-        axios.post(`${this.ollamaUrl}/api/generate`, requestData, {
-          timeout: timeoutMs,
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          maxContentLength: Infinity,
-          maxBodyLength: Infinity
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Analysis timeout after ${timeoutMs}ms - model processing too slow`)), timeoutMs)
-        )
-      ]);
+      console.log(`[LLAVA_SERVICE] [${requestId}] Making request to Ollama with NO TIMEOUT`);
+
+      let response;
+      const maxRetries = isNoveltyRequest ? 3 : 1; // Retry novelty requests
+      let lastError;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`[LLAVA_SERVICE] [${requestId}] Attempt ${attempt}/${maxRetries}`);
+
+          // Use hardened HTTP client with no timeout and keep-alive
+          response = await axios.post(`${this.ollamaUrl}/api/generate`, requestData, {
+            timeout: 0, // No timeout
+            headers: {
+              'Content-Type': 'application/json',
+              'Connection': 'keep-alive'
+            },
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+            httpAgent: this.httpAgent,
+            httpsAgent: this.httpsAgent,
+            validateStatus: function (status) {
+              return status < 500; // Don't throw for 4xx errors
+            }
+          });
+
+          console.log(`[LLAVA_SERVICE] [${requestId}] Ollama request completed successfully on attempt ${attempt}`);
+          break; // Success, exit retry loop
+
+        } catch (error) {
+          lastError = error;
+          console.error(`[LLAVA_SERVICE] [${requestId}] Attempt ${attempt}/${maxRetries} failed: ${error.message}`);
+
+          // Check if this is a retryable error
+          const isRetryable = isNoveltyRequest && (
+            error.code === 'ECONNRESET' ||
+            error.code === 'ETIMEDOUT' ||
+            error.code === 'ENOTFOUND' ||
+            error.code === 'ECONNREFUSED' ||
+            error.message.includes('socket hang up') ||
+            error.message.includes('timeout')
+          );
+
+          if (isRetryable && attempt < maxRetries) {
+            const delay = Math.pow(2, attempt - 1) * 250; // Exponential backoff: 250ms, 500ms, 1s
+            console.log(`[LLAVA_SERVICE] [${requestId}] Retrying in ${delay}ms (retryable error: ${error.code || error.message})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          } else {
+            throw error;
+          }
+        }
+      }
+
+      if (!response) {
+        throw lastError || new Error('All retry attempts failed');
+      }
 
       if (!response.data || !response.data.response) {
         throw new Error('Invalid response from Ollama - no response data');
@@ -141,12 +262,21 @@ class LLaVAService {
       const accuracyScore = this.calculateOptimizedConfidenceScore(answer, ollamaMetrics);
       const totalProcessingTime = Date.now() - analysisStartTime;
 
+      if (isNoveltyRequest) {
+        console.log(`[LLAVA_SERVICE] [${requestId}] Novelty request completed`);
+        console.log(`[LLAVA_SERVICE] [${requestId}] NOVELTY RESPONSE: "${answer}"`);
+      } else {
+        console.log(`[LLAVA_SERVICE] [${requestId}] ${isSuggestionRequest ? 'Suggestion' : 'Analysis'} request completed`);
+      }
+
       return {
         answer,
         accuracyScore,
         processingTime: totalProcessingTime,
         model: modelToUse,
-        requestType: isSuggestionRequest ? 'suggestion' : 'analysis',
+        requestType: isSuggestionRequest ? 'suggestion' : (isNoveltyRequest ? 'novelty' : 'analysis'),
+        optimizedFrameSize: optimizedFrame.length,
+        requestId: requestId,
         rawJson: JSON.stringify({
           ...response.data,
           optimizationMetrics: {
@@ -155,10 +285,14 @@ class LLaVAService {
             sizeReduction: Math.round((1 - optimizedFrame.length / frameBase64.length) * 100),
             tokenLimit: requestData.options.num_predict,
             actualTokens: ollamaMetrics.evalCount,
-            requestType: isSuggestionRequest ? 'suggestion' : 'analysis',
+            requestType: isSuggestionRequest ? 'suggestion' : (isNoveltyRequest ? 'novelty' : 'analysis'),
             unifiedPipeline: true,
             realModelExecution: true,
-            ollamaMetricsPresent: !!(ollamaMetrics.totalDuration > 0)
+            ollamaMetricsPresent: !!(ollamaMetrics.totalDuration > 0),
+            requestBudget: 'unlimited',
+            budgetUsed: 'N/A',
+            timeoutBypassed: true,
+            requestId: requestId
           },
           pipelineTiming: {
             total: totalProcessingTime
@@ -169,6 +303,13 @@ class LLaVAService {
 
     } catch (error) {
       const totalProcessingTime = Date.now() - analysisStartTime;
+
+      console.error(`[LLAVA_SERVICE] [${requestId}] REQUEST FAILED after ${totalProcessingTime}ms: ${error.message}`);
+
+      if (isNoveltyRequest) {
+        console.error(`[LLAVA_SERVICE] [${requestId}] NOVELTY REQUEST FAILED: ${streamId} after ${totalProcessingTime}ms`);
+        console.error(`[LLAVA_SERVICE] [${requestId}] NOVELTY ERROR: ${error.message}`);
+      }
 
       if (error.response) {
         if (error.response.status === 500) {
@@ -193,7 +334,9 @@ class LLaVAService {
         if (error.code === 'ECONNREFUSED') {
           throw new Error(`Cannot connect to Ollama at ${this.ollamaUrl}. Please ensure Ollama is running: ollama serve`);
         } else if (error.code === 'ETIMEDOUT') {
-          throw new Error(`Connection to Ollama timed out after ${error.config?.timeout || 'unknown'}ms. Ollama may be overloaded.`);
+          throw new Error(`Connection to Ollama timed out. Ollama may be overloaded.`);
+        } else if (error.code === 'ECONNRESET' || error.message.includes('socket hang up')) {
+          throw new Error(`Connection to Ollama was reset. This may be due to stream teardown or server overload.`);
         } else {
           throw new Error(`Network error connecting to Ollama: ${error.message}`);
         }
@@ -201,11 +344,9 @@ class LLaVAService {
 
       if (error.message.includes('Frame dropped')) {
         throw error;
-      } else if (error.message.includes('timeout') || error.message.includes('model processing too slow')) {
-        throw new Error(`LLaVA model timeout after ${totalProcessingTime}ms - model processing too slow`);
       }
 
-      throw new Error(`Unified analysis failed: ${error.message}`);
+      throw new Error(`Analysis failed: ${error.message}`);
     } finally {
       if (!isSuggestionRequest && streamId && this.activeRequests.has(streamId)) {
         this.activeRequests.delete(streamId);
@@ -246,13 +387,8 @@ class LLaVAService {
 
   async generateSuggestionsWithRetry(frameBase64) {
     const retryPrompts = [
-      // First attempt - ask for 5 suggestions, 3 words max
       `Based on the image provided, suggest actionable prompts only—commands that can be performed—related to the image, such as 'count objects' or 'describe scene'. Provide up to 5 suggestions, each no longer than 3 words.`,
-
-      // Second attempt - ask for 3 suggestions, 2 words max
       `Based on the image provided, suggest actionable prompts only—commands that can be performed—related to the image, such as 'count objects' or 'describe scene'. Provide up to 3 suggestions, each no longer than 2 words.`,
-
-      // Third attempt - ask for 2 suggestions, 2 words max
       `Based on the image provided, suggest actionable prompts only—commands that can be performed—related to the image, such as 'count objects' or 'describe scene'. Provide up to 2 suggestions, each no longer than 2 words.`
     ];
 
@@ -270,33 +406,26 @@ class LLaVAService {
         const suggestions = this.processModelResponse(result.answer);
         console.log(`[LLAVA_SERVICE] Processed suggestions for attempt ${attempt + 1}:`, suggestions);
 
-        // Accumulate suggestions from this attempt
         accumulatedSuggestions = [...accumulatedSuggestions, ...suggestions];
-        
-        // Remove duplicates
         accumulatedSuggestions = [...new Set(accumulatedSuggestions)];
 
         console.log(`[LLAVA_SERVICE] Accumulated suggestions after attempt ${attempt + 1}:`, accumulatedSuggestions);
 
-        // If we have any valid suggestions, return them immediately
         if (accumulatedSuggestions.length > 0) {
           console.log(`[LLAVA_SERVICE] Success: returning ${accumulatedSuggestions.length} accumulated suggestions`);
-          return accumulatedSuggestions.slice(0, 6); // Limit to 6 max
+          return accumulatedSuggestions.slice(0, 6);
         }
 
-        // If this is the last attempt and we have no suggestions, fail
         if (attempt === retryPrompts.length - 1) {
           console.log(`[LLAVA_SERVICE] All attempts completed with no valid suggestions`);
           throw new Error(`No valid suggestions generated after ${retryPrompts.length} attempts`);
         }
 
-        // Wait before retry
         await new Promise(resolve => setTimeout(resolve, 1000));
 
       } catch (error) {
         console.error(`[LLAVA_SERVICE] Attempt ${attempt + 1} error:`, error.message);
 
-        // If this is the last attempt, return what we have or fail
         if (attempt === retryPrompts.length - 1) {
           if (accumulatedSuggestions.length > 0) {
             console.log(`[LLAVA_SERVICE] Final attempt failed but returning ${accumulatedSuggestions.length} accumulated suggestions`);
@@ -307,14 +436,12 @@ class LLaVAService {
           }
         }
 
-        // Wait before retry
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
   }
 
   getFallbackSuggestions() {
-    // Return basic, universally applicable suggestions when model fails
     return [
       'Count people',
       'Describe scene',
@@ -324,35 +451,29 @@ class LLaVAService {
   }
 
   async generateSuggestions(frameBase64, retryAttempt = 0) {
-    // This method is now replaced by generateSuggestionsWithRetry
     return await this.generateSuggestionsWithRetry(frameBase64);
   }
 
   processModelResponse(answer) {
     console.log('[LLAVA_SERVICE] Processing raw model response (minimal filtering):', answer);
 
-    // Extremely minimal processing - accept almost everything the model provides
     const suggestions = answer
       .split('\n')
       .map((line) => {
-        // Only remove basic formatting characters
         let cleaned = line.replace(/^\d+\.?\s*/, '').replace(/^[-•*]\s*/, '').trim();
         cleaned = cleaned.replace(/^["']|["']$/g, '');
 
-        // Only skip completely empty lines
         if (cleaned.length === 0) {
           return null;
         }
 
-        // Accept everything else - no word count limits, no content validation
         return cleaned;
       })
       .filter(suggestion => suggestion !== null && suggestion.trim().length > 0);
 
-    // Also try splitting by other delimiters if newlines don't work
     if (suggestions.length === 0) {
       console.log('[LLAVA_SERVICE] No newline-separated suggestions found, trying comma/period separation');
-      
+
       const alternativeSuggestions = answer
         .split(/[,.;]/)
         .map(part => {
@@ -361,12 +482,11 @@ class LLaVAService {
           return cleaned.length > 0 ? cleaned : null;
         })
         .filter(suggestion => suggestion !== null);
-      
+
       console.log('[LLAVA_SERVICE] Alternative parsing found:', alternativeSuggestions);
       suggestions.push(...alternativeSuggestions);
     }
 
-    // If still no suggestions, take the entire response as one suggestion
     if (suggestions.length === 0 && answer.trim().length > 0) {
       console.log('[LLAVA_SERVICE] No parsed suggestions, using entire response as single suggestion');
       const entireResponse = answer.trim().replace(/^["']|["']$/g, '');
@@ -376,185 +496,7 @@ class LLaVAService {
     }
 
     console.log('[LLAVA_SERVICE] Final extracted suggestions (ultra-minimal processing):', suggestions);
-    return suggestions.slice(0, 6); // Limit to 6 max to prevent UI overflow
-  }
-
-  processStrictSuggestionResponse(answer) {
-    const actionVerbs = [
-      'count', 'detect', 'find', 'check', 'analyze', 'identify', 'examine',
-      'locate', 'spot', 'search', 'look', 'scan', 'monitor', 'track', 'observe', 'describe'
-    ];
-
-    const suggestions = answer
-      .split('\n')
-      .map((line) => {
-        let cleaned = line.replace(/^\d+\.?\s*/, '').replace(/^[-•*]\s*/, '').trim();
-        cleaned = cleaned.replace(/^["']|["']$/g, '');
-
-        if (cleaned.includes(':')) {
-          cleaned = cleaned.split(':')[0].trim();
-        }
-
-        if (cleaned.includes(',')) {
-          cleaned = cleaned.split(',')[0].trim();
-        }
-
-        if (cleaned.length < 5) {
-          return null;
-        }
-
-        const words = cleaned.toLowerCase().split(' ').filter(word => word.length > 0);
-
-        if (words.length < 2 || words.length > 5) {
-          return null;
-        }
-
-        const firstWord = words[0];
-        const isActionVerb = actionVerbs.includes(firstWord);
-
-        if (!isActionVerb) {
-          return null;
-        }
-
-        const lastWord = words[words.length - 1];
-        const incompletePatterns = [
-          'the', 'a', 'an', 'is', 'are', 'if', 'that', 'this', 'for', 'with', 'in', 'on', 'at'
-        ];
-
-        if (incompletePatterns.includes(lastWord)) {
-          return null;
-        }
-
-        const hasNumbers = /\d/.test(cleaned);
-        if (hasNumbers) {
-          return null;
-        }
-
-        const contextKeywords = [
-          'people', 'person', 'objects', 'items', 'colors', 'lighting', 'movement', 'motion',
-          'vehicles', 'cars', 'buildings', 'doors', 'windows', 'activity', 'scene', 'background',
-          'foreground', 'shapes', 'faces', 'hands', 'animals', 'plants', 'furniture', 'tools',
-          'signs', 'text', 'numbers', 'patterns', 'textures', 'materials', 'clothing', 'food'
-        ];
-
-        const hasContextKeyword = words.some(word => contextKeywords.includes(word));
-        if (!hasContextKeyword) {
-          return null;
-        }
-
-        const actionablePhrase = words.map((word, i) =>
-          i === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word
-        ).join(' ');
-
-        return actionablePhrase;
-      })
-      .filter(suggestion => suggestion !== null);
-
-    const uniqueSuggestions = [...new Set(suggestions)].slice(0, 6);
-    return uniqueSuggestions;
-  }
-
-  getContextualFallbacks(frameBase64) {
-    return this.contextualFallbacks.general;
-  }
-
-  startBackgroundSuggestionProcessing(frameBase64, frameHash) {
-    if (this.backgroundSuggestionQueue.has(frameHash)) {
-      return;
-    }
-
-    this.backgroundSuggestionQueue.set(frameHash, {
-      startTime: Date.now(),
-      status: 'processing'
-    });
-
-    this.processBackgroundSuggestions(frameBase64, frameHash).catch(error => {
-      console.error('Background processing failed:', error.message);
-      this.backgroundSuggestionQueue.delete(frameHash);
-    });
-  }
-
-  async processBackgroundSuggestions(frameBase64, frameHash) {
-    try {
-      const suggestionPrompt = `Analyze this image and suggest 6 short analysis tasks (3-4 words each) that would be useful for examining this specific scene.
-
-Focus on what you actually see in the image. Make each suggestion an actionable command:
-- Count visible people
-- Describe main colors
-- Check door status
-- Find any vehicles
-- Identify key objects
-- Detect any activity
-
-Generate 6 prompts based on what you see. Format as one prompt per line, no numbers.`;
-
-      const backgroundStreamId = `background-${Date.now()}`;
-
-      const result = await Promise.race([
-        this.analyzeFrame(frameBase64, suggestionPrompt, 30, backgroundStreamId),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Background LLaVA timeout after 30s')), 30000)
-        )
-      ]);
-
-      const suggestions = this.processSuggestionResponse(result.answer);
-
-      if (suggestions.length >= 3) {
-        this.suggestionCache.set(frameHash, {
-          suggestions,
-          timestamp: Date.now(),
-          source: 'llava',
-          processingTime: result.processingTime,
-          backgroundProcessed: true
-        });
-
-        this.backgroundSuggestionQueue.delete(frameHash);
-      } else {
-        throw new Error('Background LLaVA returned insufficient suggestions');
-      }
-
-    } catch (error) {
-      console.error('Background processing failed:', error.message);
-      this.backgroundSuggestionQueue.delete(frameHash);
-    }
-  }
-
-  processSuggestionResponse(answer) {
-    return answer
-      .split('\n')
-      .map(line => {
-        let cleaned = line.replace(/^\d+\.?\s*/, '').replace(/^[-•*]\s*/, '').trim();
-        cleaned = cleaned.replace(/^["']|["']$/g, '');
-
-        const actionVerbs = ['count', 'describe', 'check', 'find', 'identify', 'detect', 'analyze', 'examine', 'look', 'search'];
-        const firstWord = cleaned.toLowerCase().split(' ')[0];
-
-        if (!actionVerbs.includes(firstWord) && cleaned.length > 0) {
-          if (cleaned.toLowerCase().includes('people') || cleaned.toLowerCase().includes('person')) {
-            cleaned = 'Count ' + cleaned.toLowerCase();
-          } else if (cleaned.toLowerCase().includes('color') || cleaned.toLowerCase().includes('colour')) {
-            cleaned = 'Describe ' + cleaned.toLowerCase();
-          } else if (cleaned.toLowerCase().includes('door') || cleaned.toLowerCase().includes('window')) {
-            cleaned = 'Check ' + cleaned.toLowerCase();
-          } else if (cleaned.toLowerCase().includes('vehicle') || cleaned.toLowerCase().includes('car')) {
-            cleaned = 'Find ' + cleaned.toLowerCase();
-          } else {
-            cleaned = 'Identify ' + cleaned.toLowerCase();
-          }
-        }
-
-        const words = cleaned.split(' ');
-        if (words.length > 5) {
-          cleaned = words.slice(0, 5).join(' ');
-        }
-
-        return cleaned;
-      })
-      .filter(line => {
-        const words = line.trim().split(' ');
-        return line.length > 0 && words.length >= 2 && words.length <= 5;
-      })
-      .slice(0, 6);
+    return suggestions.slice(0, 6);
   }
 
   createFrameHash(frameBase64) {

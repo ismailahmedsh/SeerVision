@@ -12,8 +12,8 @@ class Camera {
         const { name, type, streamUrl, userId } = cameraData;
 
         const query = `
-          INSERT INTO cameras (name, type, streamUrl, userId, status, lastSeen, createdAt, updatedAt)
-          VALUES (?, ?, ?, ?, 'connected', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          INSERT INTO cameras (name, type, streamUrl, userId, status, lastSeen, memory, createdAt, updatedAt)
+          VALUES (?, ?, ?, ?, 'connected', CURRENT_TIMESTAMP, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         `;
 
         db.run(query, [name, type, streamUrl, userId], function(err) {
@@ -47,7 +47,9 @@ class Camera {
         const query = `
           SELECT id as _id, name, type, streamUrl, status, lastSeen,
                  recordingEnabled, motionDetection, alertsEnabled, analysisInterval,
-                 resolution, frameRate, bitrate, createdAt, updatedAt
+                 resolution, frameRate, bitrate, 
+                 COALESCE(memory, 0) as memory, 
+                 createdAt, updatedAt
           FROM cameras
           WHERE userId = ?
           ORDER BY createdAt DESC
@@ -79,7 +81,9 @@ class Camera {
         let query = `
           SELECT id as _id, name, type, streamUrl, status, lastSeen,
                  recordingEnabled, motionDetection, alertsEnabled, analysisInterval,
-                 resolution, frameRate, bitrate, createdAt, updatedAt, userId
+                 resolution, frameRate, bitrate, 
+                 COALESCE(memory, 0) as memory, 
+                 createdAt, updatedAt, userId
           FROM cameras
           WHERE id = ?
         `;
@@ -115,7 +119,7 @@ class Camera {
 
         const allowedFields = ['name', 'type', 'streamUrl', 'status', 'recordingEnabled',
                              'motionDetection', 'alertsEnabled', 'analysisInterval',
-                             'resolution', 'frameRate', 'bitrate'];
+                             'resolution', 'frameRate', 'bitrate', 'memory'];
 
         const updates = [];
         const values = [];
@@ -140,6 +144,9 @@ class Camera {
           WHERE id = ? AND userId = ?
         `;
 
+        console.log('[CAMERA_MODEL] Update query:', query);
+        console.log('[CAMERA_MODEL] Update values:', values);
+
         db.run(query, values, function(err) {
           if (err) {
             console.error('Error updating camera:', err.message);
@@ -147,6 +154,7 @@ class Camera {
           } else if (this.changes === 0) {
             reject(new Error('Camera not found or access denied'));
           } else {
+            console.log('[CAMERA_MODEL] Camera updated successfully, changes:', this.changes);
             Camera.findById(id, userId)
               .then(camera => resolve(camera))
               .catch(findErr => {

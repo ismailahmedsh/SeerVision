@@ -9,28 +9,35 @@ class VideoAnalysis {
           throw new Error('Database connection is not available');
         }
 
-        const { streamId, cameraId, userId, prompt, status, analysisInterval, jsonOption = false } = analysisData;
-
-        console.log('[VIDEO_ANALYSIS_MODEL] Creating analysis session:', { streamId, cameraId, userId, prompt, jsonOption });
+        const { streamId, cameraId, userId, prompt, status, analysisInterval, jsonOption, memory } = analysisData;
 
         const query = `
-          INSERT INTO video_analysis (streamId, cameraId, userId, prompt, status, analysisInterval, jsonOption, createdAt, updatedAt)
-          VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          INSERT INTO video_analysis (streamId, cameraId, userId, prompt, status, analysisInterval, jsonOption, memory, createdAt, updatedAt)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         `;
 
-        db.run(query, [streamId, cameraId, userId, prompt, status, analysisInterval, jsonOption ? 1 : 0], function(err) {
+        db.run(query, [streamId, cameraId, userId, prompt, status, analysisInterval, jsonOption ? 1 : 0, memory ? 1 : 0], function(err) {
           if (err) {
-            console.error('[VIDEO_ANALYSIS_MODEL] Error creating analysis:', err.message);
+            console.error('Error creating video analysis:', err.message);
             reject(err);
           } else {
-            console.log('[VIDEO_ANALYSIS_MODEL] Analysis created with ID:', this.lastID);
-            VideoAnalysis.findById(this.lastID)
-              .then(analysis => resolve(analysis))
-              .catch(findErr => reject(findErr));
+            resolve({
+              id: this.lastID,
+              streamId,
+              cameraId,
+              userId,
+              prompt,
+              status,
+              analysisInterval,
+              jsonOption: jsonOption ? 1 : 0,
+              memory: memory ? 1 : 0,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            });
           }
         });
       } catch (error) {
-        console.error('[VIDEO_ANALYSIS_MODEL] CRITICAL ERROR in create:', error.message);
+        console.error('Error in create:', error.message);
         reject(error);
       }
     });
@@ -127,6 +134,36 @@ class VideoAnalysis {
         });
       } catch (error) {
         console.error('[VIDEO_ANALYSIS_MODEL] CRITICAL ERROR in updateStatus:', error.message);
+        reject(error);
+      }
+    });
+  }
+
+  static async updateInterval(streamId, analysisInterval) {
+    return new Promise((resolve, reject) => {
+      try {
+        const db = getDb();
+        if (!db) {
+          throw new Error('Database connection is not available');
+        }
+
+        const query = `
+          UPDATE video_analysis
+          SET analysisInterval = ?, updatedAt = CURRENT_TIMESTAMP
+          WHERE streamId = ?
+        `;
+
+        db.run(query, [analysisInterval, streamId], function(err) {
+          if (err) {
+            console.error('[VIDEO_ANALYSIS_MODEL] Error updating analysis interval:', err.message);
+            reject(err);
+          } else {
+            console.log('[VIDEO_ANALYSIS_MODEL] Analysis interval updated to:', analysisInterval);
+            resolve({ success: true });
+          }
+        });
+      } catch (error) {
+        console.error('[VIDEO_ANALYSIS_MODEL] CRITICAL ERROR in updateInterval:', error.message);
         reject(error);
       }
     });
