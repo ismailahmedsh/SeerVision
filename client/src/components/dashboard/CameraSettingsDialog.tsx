@@ -66,7 +66,6 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [streamNeedsRestart, setStreamNeedsRestart] = useState(false)
-  const [analysisInterval, setAnalysisInterval] = useState(30)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -87,8 +86,9 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
     try {
       const response = await getCameraSettings(camera._id)
       if (response.success && response.settings) {
-        setSettings(response.settings)
-        setAnalysisInterval(response.settings.analysisInterval || 30)
+        const settingsData = response.settings
+        setSettings(settingsData)
+        setOriginalSettings(settingsData) // Store original for comparison
       } else {
         const defaultSettings: CameraSettings = {
           name: camera.name,
@@ -103,7 +103,7 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
           }
         }
         setSettings(defaultSettings)
-        setAnalysisInterval(defaultSettings.analysisInterval)
+        setOriginalSettings(defaultSettings) // Store original for comparison
       }
     } catch (error) {
       console.error('Failed to load camera settings:', error)
@@ -120,13 +120,18 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
         }
       }
       setSettings(fallbackSettings)
-      setAnalysisInterval(fallbackSettings.analysisInterval)
+      setOriginalSettings(fallbackSettings) // Store original for comparison
     }
   }
 
   const handleAnalysisIntervalChange = (value: number) => {
     const enforcedInterval = Math.max(6, value)
-    setAnalysisInterval(enforcedInterval)
+    if (settings) {
+      setSettings({
+        ...settings,
+        analysisInterval: enforcedInterval
+      })
+    }
   }
 
   const handleSaveSettings = async () => {
@@ -135,14 +140,13 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
     }
 
     try {
-      const updatedSettings = {
-        ...settings,
-        analysisInterval
-      }
-
-      const response = await updateCameraSettings(camera._id, updatedSettings)
+      setSaving(true)
+      const response = await updateCameraSettings(camera._id, settings)
       
       if (response.success) {
+        // Update original settings after successful save
+        setOriginalSettings(settings)
+        
         toast({
           title: "Success",
           description: "Camera settings updated successfully",
@@ -167,6 +171,8 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
         description: error.message || "Failed to save settings",
         variant: "destructive",
       })
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -189,7 +195,12 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
   const hasUnsavedChanges = () => {
     if (!originalSettings || !settings) return false
     
-    return JSON.stringify(originalSettings) !== JSON.stringify(settings)
+    // Deep comparison of relevant fields
+    return (
+      originalSettings.name !== settings.name ||
+      originalSettings.analysisInterval !== settings.analysisInterval ||
+      originalSettings.memory !== settings.memory
+    )
   }
 
   if (!camera) {
