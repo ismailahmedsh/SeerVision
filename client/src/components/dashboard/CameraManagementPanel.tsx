@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { Plus, Camera, Wifi, WifiOff, Edit, Trash2, Eye, ChevronDown, ChevronUp } from "lucide-react"
+import { Plus, Camera, Wifi, WifiOff, Trash2, Eye, ChevronDown, ChevronUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"

@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Set explicit baseURL for development to avoid proxy issues
 const isDevelopment = import.meta.env.DEV;
-const baseURL = isDevelopment ? 'http://localhost:3000' : '';
+const baseURL = isDevelopment ? 'http://localhost:3001' : '';
 
 const api = axios.create({
   baseURL,

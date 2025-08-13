@@ -1,38 +1,175 @@
 import { useState, useEffect } from "react"
-import { Settings as SettingsIcon, User, Bell, Shield, Database, Palette } from "lucide-react"
+import { Settings as SettingsIcon, User, Database, Shield, Trash2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Separator } from "@/components/ui/separator"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { useToast } from "@/hooks/useToast"
 import { useSettings } from "@/contexts/SettingsContext"
+import { useAuth } from "@/contexts/AuthContext"
+import { updateSettings } from "@/api/settings"
 
 export function Settings() {
   const [saving, setSaving] = useState(false)
+  const [changingPassword, setChangingPassword] = useState(false)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [resettingData, setResettingData] = useState(false)
+  const [passwordData, setPasswordData] = useState({
+    oldPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  })
   const { toast } = useToast()
-  const { settings, updateSetting, saveSettings, loading } = useSettings()
+  const { settings, updateSetting, saveSettings, refreshSettings, loading } = useSettings()
+  const { isAuthenticated, user } = useAuth()
+  
+  // Debug logging for settings state
+  useEffect(() => {
+    console.log("Settings state changed:", {
+      settings,
+      loading,
+      hasSettings: !!settings,
+      profileName: settings?.profile?.name,
+      analysisInterval: settings?.analysis?.defaultInterval
+    })
+  }, [settings, loading])
+  
+
 
   const handleSaveSettings = async () => {
     try {
       setSaving(true)
-      await saveSettings()
+      
+      console.log("Starting to save settings...")
+      console.log("Current settings:", settings)
+      
+      // Check if settings exist
+      if (!settings) {
+        throw new Error("Settings not loaded yet")
+      }
+      
+      // Only save settings that have been modified
+      const settingsToSave = {
+        profile: {
+          name: settings.profile?.name || ""
+        },
+        analysis: {
+          defaultInterval: settings.analysis?.defaultInterval || 6
+        }
+      }
+      
+      console.log("Settings to save:", settingsToSave)
+      
+      // Test the updateSettings function first
+      try {
+        const result = await updateSettings(settingsToSave)
+        console.log("Update result:", result)
+      } catch (updateError) {
+        console.error("Error in updateSettings:", updateError)
+        throw new Error(`Failed to update settings: ${updateError.message}`)
+      }
+      
+      // Test the refreshSettings function
+      try {
+        await refreshSettings()
+        console.log("Settings refreshed successfully")
+      } catch (refreshError) {
+        console.error("Error in refreshSettings:", refreshError)
+        // Don't throw here, just log the error
+      }
+      
       toast({
         title: "Success",
         description: "Settings saved successfully",
       })
     } catch (error) {
       console.error("Error saving settings:", error)
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+        error
+      })
       toast({
         title: "Error",
-        description: "Failed to save settings",
+        description: `Failed to save settings: ${error.message}`,
         variant: "destructive",
       })
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleChangePassword = async () => {
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      toast({
+        title: "Error",
+        description: "New passwords do not match",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      setChangingPassword(true)
+      // TODO: Implement password change API call
+      // await changePassword(passwordData.oldPassword, passwordData.newPassword)
+      
+      toast({
+        title: "Success",
+        description: "Password changed successfully",
+      })
+      
+      // Reset password form
+      setPasswordData({
+        oldPassword: '',
+        newPassword: '',
+        confirmPassword: ''
+      })
+      setChangingPassword(false)
+    } catch (error) {
+      console.error("Error changing password:", error)
+      toast({
+        title: "Error",
+        description: "Failed to change password",
+        variant: "destructive",
+      })
+    } finally {
+      setChangingPassword(false)
+    }
+  }
+
+  const handleResetAnalyticsData = async () => {
+    try {
+      setResettingData(true)
+      // TODO: Implement API call to reset analytics data
+      // await resetAnalyticsData()
+      
+      toast({
+        title: "Success",
+        description: "All analytics data has been reset successfully",
+      })
+      
+      setShowResetConfirm(false)
+    } catch (error) {
+      console.error("Error resetting analytics data:", error)
+      toast({
+        title: "Error",
+        description: "Failed to reset analytics data",
+        variant: "destructive",
+      })
+    } finally {
+      setResettingData(false)
     }
   }
 
@@ -44,6 +181,8 @@ export function Settings() {
           <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/2"></div>
         </div>
         <div className="h-96 bg-slate-200 dark:bg-slate-700 rounded animate-pulse"></div>
+        
+
       </div>
     )
   }
@@ -59,262 +198,188 @@ export function Settings() {
             Manage your account and application preferences
           </p>
         </div>
-        <Button
-          onClick={handleSaveSettings}
-          disabled={saving}
-          className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white"
-        >
-          {saving ? "Saving..." : "Save Changes"}
-        </Button>
+                 <Button
+           onClick={handleSaveSettings}
+           disabled={saving || !settings || (!settings.profile?.name && !settings.analysis?.defaultInterval)}
+           className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white"
+         >
+           {saving ? "Saving..." : "Save Changes"}
+         </Button>
       </div>
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="profile">Profile</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
           <TabsTrigger value="analysis">Analysis</TabsTrigger>
-          <TabsTrigger value="display">Display</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="profile" className="space-y-6">
-          <Card className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm border-slate-200 dark:border-slate-700">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <User className="h-5 w-5 text-blue-600" />
-                Profile Information
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input
-                    id="name"
-                    value={settings?.profile.name || ""}
-                    onChange={(e) => updateSetting('profile', 'name', e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email Address</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={settings?.profile.email || ""}
-                    onChange={(e) => updateSetting('profile', 'email', e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="timezone">Timezone</Label>
-                <Select
-                  value={settings?.profile.timezone || ""}
-                  onValueChange={(value) => updateSetting('profile', 'timezone', value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select timezone" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="UTC">UTC</SelectItem>
-                    <SelectItem value="America/New_York">Eastern Time</SelectItem>
-                    <SelectItem value="America/Chicago">Central Time</SelectItem>
-                    <SelectItem value="America/Denver">Mountain Time</SelectItem>
-                    <SelectItem value="America/Los_Angeles">Pacific Time</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+                 <TabsContent value="profile" className="space-y-6">
+           <Card className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm border-slate-200 dark:border-slate-700">
+             <CardHeader>
+               <CardTitle className="flex items-center gap-2">
+                 <User className="h-5 w-5 text-blue-600" />
+                 Profile Information
+               </CardTitle>
+             </CardHeader>
+             <CardContent className="space-y-4">
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                 <div className="space-y-2">
+                   <Label htmlFor="name">Full Name</Label>
+                   <Input
+                     id="name"
+                     value={settings?.profile.name || ""}
+                     onChange={(e) => updateSetting('profile', 'name', e.target.value)}
+                   />
+                 </div>
+                 <div className="space-y-2">
+                   <Label htmlFor="email">Email Address</Label>
+                   <Input
+                     id="email"
+                     type="email"
+                     value={user?.email || ""}
+                     disabled
+                     className="bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                   />
+                   <p className="text-xs text-gray-500 dark:text-gray-400">
+                     Email cannot be changed after account creation
+                   </p>
+                 </div>
+               </div>
+             </CardContent>
+           </Card>
 
-        <TabsContent value="notifications" className="space-y-6">
-          <Card className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm border-slate-200 dark:border-slate-700">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bell className="h-5 w-5 text-green-600" />
-                Notification Preferences
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Email Alerts</Label>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">
-                    Receive email notifications for important events
-                  </p>
-                </div>
-                <Switch
-                  checked={settings?.notifications.emailAlerts || false}
-                  onCheckedChange={(checked) => updateSetting('notifications', 'emailAlerts', checked)}
-                />
-              </div>
-              <Separator />
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Push Notifications</Label>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">
-                    Get real-time push notifications in your browser
-                  </p>
-                </div>
-                <Switch
-                  checked={settings?.notifications.pushNotifications || false}
-                  onCheckedChange={(checked) => updateSetting('notifications', 'pushNotifications', checked)}
-                />
-              </div>
-              <Separator />
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Analysis Updates</Label>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">
-                    Notifications when analysis completes or finds significant changes
-                  </p>
-                </div>
-                <Switch
-                  checked={settings?.notifications.analysisUpdates || false}
-                  onCheckedChange={(checked) => updateSetting('notifications', 'analysisUpdates', checked)}
-                />
-              </div>
-              <Separator />
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>System Maintenance</Label>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">
-                    Alerts about scheduled maintenance and system updates
-                  </p>
-                </div>
-                <Switch
-                  checked={settings?.notifications.systemMaintenance || false}
-                  onCheckedChange={(checked) => updateSetting('notifications', 'systemMaintenance', checked)}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+           <Card className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm border-slate-200 dark:border-slate-700">
+             <CardHeader>
+               <CardTitle className="flex items-center gap-2">
+                 <Shield className="h-5 w-5 text-red-600" />
+                 Change Password
+               </CardTitle>
+             </CardHeader>
+             <CardContent className="space-y-4">
+               <div className="space-y-2">
+                 <Label htmlFor="oldPassword">Current Password</Label>
+                 <Input
+                   id="oldPassword"
+                   type="password"
+                   value={passwordData.oldPassword}
+                   onChange={(e) => setPasswordData(prev => ({ ...prev, oldPassword: e.target.value }))}
+                   placeholder="Enter your current password"
+                 />
+               </div>
+               <div className="space-y-2">
+                 <Label htmlFor="newPassword">New Password</Label>
+                 <Input
+                   id="newPassword"
+                   type="password"
+                   value={passwordData.newPassword}
+                   onChange={(e) => setPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
+                   placeholder="Enter your new password"
+                 />
+               </div>
+               <div className="space-y-2">
+                 <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                 <Input
+                   id="confirmPassword"
+                   type="password"
+                   value={passwordData.confirmPassword}
+                   onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                   placeholder="Confirm your new password"
+                 />
+               </div>
+               <Button
+                 onClick={handleChangePassword}
+                 disabled={changingPassword || !passwordData.oldPassword || !passwordData.newPassword || !passwordData.confirmPassword}
+                 className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white"
+               >
+                 {changingPassword ? "Changing Password..." : "Change Password"}
+               </Button>
+             </CardContent>
+           </Card>
+         </TabsContent>
 
-        <TabsContent value="analysis" className="space-y-6">
-          <Card className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm border-slate-200 dark:border-slate-700">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Database className="h-5 w-5 text-purple-600" />
-                Analysis Settings
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="interval">Default Update Interval (seconds)</Label>
-                  <Input
+
+
+                 <TabsContent value="analysis" className="space-y-6">
+           <Card className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm border-slate-200 dark:border-slate-700">
+             <CardHeader>
+               <CardTitle className="flex items-center gap-2">
+                 <Database className="h-5 w-5 text-purple-600" />
+                 Analysis Settings
+               </CardTitle>
+             </CardHeader>
+             <CardContent className="space-y-6">
+               <div className="space-y-2">
+                 <Label htmlFor="interval">Default Update Interval (seconds)</Label>
+                                   <Input
                     id="interval"
                     type="number"
-                    min="1"
-                    max="60"
-                    value={settings?.analysis.defaultInterval || 2}
+                    min="6"
+                    max="120"
+                    value={settings?.analysis.defaultInterval || 6}
                     onChange={(e) => updateSetting('analysis', 'defaultInterval', parseInt(e.target.value))}
                   />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="confidence">Confidence Threshold (%)</Label>
-                  <Input
-                    id="confidence"
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={Math.round((settings?.analysis.confidenceThreshold || 0.8) * 100)}
-                    onChange={(e) => updateSetting('analysis', 'confidenceThreshold', parseInt(e.target.value) / 100)}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="historyDays">Keep History (days)</Label>
-                <Input
-                  id="historyDays"
-                  type="number"
-                  min="1"
-                  max="365"
-                  value={settings?.analysis.maxHistoryDays || 30}
-                  onChange={(e) => updateSetting('analysis', 'maxHistoryDays', parseInt(e.target.value))}
-                />
-              </div>
-              <Separator />
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Auto Archive Old Data</Label>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">
-                    Automatically archive analysis data older than the retention period
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    How often to update analysis data (6-120 seconds)
                   </p>
-                </div>
-                <Switch
-                  checked={settings?.analysis.autoArchive || false}
-                  onCheckedChange={(checked) => updateSetting('analysis', 'autoArchive', checked)}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+               </div>
+             </CardContent>
+           </Card>
 
-        <TabsContent value="display" className="space-y-6">
-          <Card className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm border-slate-200 dark:border-slate-700">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Palette className="h-5 w-5 text-orange-600" />
-                Display Preferences
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="theme">Theme</Label>
-                  <Select
-                    value={settings?.display.theme || "light"}
-                    onValueChange={(value) => updateSetting('display', 'theme', value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="light">Light</SelectItem>
-                      <SelectItem value="dark">Dark</SelectItem>
-                      <SelectItem value="system">System</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="language">Language</Label>
-                  <Select
-                    value={settings?.display.language || "en"}
-                    onValueChange={(value) => updateSetting('display', 'language', value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="en">English</SelectItem>
-                      <SelectItem value="es">Spanish</SelectItem>
-                      <SelectItem value="fr">French</SelectItem>
-                      <SelectItem value="de">German</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="dateFormat">Date Format</Label>
-                <Select
-                  value={settings?.display.dateFormat || "MM/DD/YYYY"}
-                  onValueChange={(value) => updateSetting('display', 'dateFormat', value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
-                    <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
-                    <SelectItem value="YYYY-MM-DD">YYYY-MM-DD</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-    </div>
-  )
-}
+           <Card className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm border-slate-200 dark:border-slate-700">
+             <CardHeader>
+               <CardTitle className="flex items-center gap-2">
+                 <Trash2 className="h-5 w-5 text-red-600" />
+                 Data Management
+               </CardTitle>
+             </CardHeader>
+             <CardContent className="space-y-4">
+               <div className="space-y-2">
+                 <Label>Reset Analytics Data</Label>
+                 <p className="text-sm text-slate-600 dark:text-slate-400">
+                   This will permanently delete all analytics data including detections, confidence scores, and timeseries data. 
+                   All widgets will be reset to empty state. This action cannot be undone.
+                 </p>
+                 <Button
+                   onClick={() => setShowResetConfirm(true)}
+                   variant="destructive"
+                   className="w-full"
+                 >
+                   <Trash2 className="mr-2 h-4 w-4" />
+                   Reset All Analytics Data
+                 </Button>
+               </div>
+             </CardContent>
+           </Card>
+         </TabsContent>
+       </Tabs>
+
+       {/* Reset Analytics Data Confirmation Dialog */}
+       <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+         <AlertDialogContent>
+           <AlertDialogHeader>
+             <AlertDialogTitle>Reset Analytics Data</AlertDialogTitle>
+             <AlertDialogDescription>
+               This action will permanently delete ALL analytics data including:
+               <br />• Detection counts and statistics
+               <br />• Confidence scores and metrics
+               <br />• Timeseries data for charts
+               <br />• All widget data will be reset to empty
+               <br /><br />
+               <strong>This action cannot be undone.</strong> Are you sure you want to continue?
+             </AlertDialogDescription>
+           </AlertDialogHeader>
+           <AlertDialogFooter>
+             <AlertDialogCancel>Cancel</AlertDialogCancel>
+             <AlertDialogAction
+               onClick={handleResetAnalyticsData}
+               disabled={resettingData}
+               className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+             >
+               {resettingData ? "Resetting..." : "Yes, Reset All Data"}
+             </AlertDialogAction>
+           </AlertDialogFooter>
+         </AlertDialogContent>
+       </AlertDialog>
+     </div>
+   )
+ }

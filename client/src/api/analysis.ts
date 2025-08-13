@@ -157,11 +157,7 @@ export const analyzePrompt = (data: { prompt: string; cameraId?: string }) => {
   });
 }
 
-export const getAnalysisHistory = (params?: { limit?: number; cameraId?: string }) => {
-  return Promise.resolve({
-    history: []
-  });
-}
+
 
 export const stopAnalysis = (data: { cameraId: string }) => {
   return Promise.resolve({

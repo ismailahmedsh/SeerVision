@@ -4,11 +4,11 @@ A real-time vision-language AI platform that allows users to connect video strea
 
 ## Features
 
-- **Real-time Video Analysis**: Connect IP cameras, RTSP streams, and USB cameras
+- **Real-time Video Analysis**: Connect USB cameras for live analysis
 - **Natural Language Queries**: Ask questions like "Count how many people you see" and get live answers
 - **Live Dashboard**: Monitor multiple camera feeds with real-time analysis results
 - **Camera Management**: Easy setup and configuration of camera sources
-- **Analysis History**: Track and export analysis results over time
+- **Real-time Analytics**: Monitor AI analysis performance and trends
 - **Configurable Intervals**: Set custom analysis frequencies (6-120 seconds)
 
 ## Technology Stack
@@ -64,14 +64,11 @@ This will start both the frontend (port 5173) and backend (port 3000) concurrent
 1. **Add Cameras**: Navigate to the Cameras page and add your video sources
 2. **Live Analysis**: Go to the Dashboard, select a camera, and enter natural language prompts
 3. **Monitor Results**: View real-time analysis results and historical data
-4. **Export Data**: Download analysis history as CSV files
+4. **Real-time Analysis**: Live AI-powered video analysis with natural language queries
 
-## Camera Support
+## Camera Types
 
-- **IP Cameras**: HTTP/HTTPS video streams
-- **RTSP Streams**: Real-time streaming protocol cameras
-- **USB Cameras**: Local webcams and USB-connected cameras
-- **Video Files**: Direct links to video files (.mp4, .m3u8, etc.)
+- **USB Cameras**: Direct USB device connection
 
 ## API Endpoints
 

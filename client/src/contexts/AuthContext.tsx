@@ -2,8 +2,16 @@
 import { createContext, useContext, useState, ReactNode } from "react";
 import { login as apiLogin, register as apiRegister } from "../api/auth";
 
+interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+}
+
 type AuthContextType = {
   isAuthenticated: boolean;
+  user: User | null;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => void;
@@ -15,6 +23,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return !!localStorage.getItem("accessToken");
   });
+  const [user, setUser] = useState<User | null>(() => {
+    const userData = localStorage.getItem("user");
+    return userData ? JSON.parse(userData) : null;
+  });
 
   const login = async (email: string, password: string) => {
     try {
@@ -22,14 +34,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response?.refreshToken || response?.accessToken) {
         localStorage.setItem("refreshToken", response.refreshToken);
         localStorage.setItem("accessToken", response.accessToken);
+        
+        // Store user data if available
+        if (response.user) {
+          localStorage.setItem("user", JSON.stringify(response.user));
+          setUser(response.user);
+        }
+        
         setIsAuthenticated(true);
       } else {
-        throw new Error(error?.response?.data?.message || 'Login failed');
+        throw new Error('Login failed');
       }
-    } catch (error) {
+    } catch (error: any) {
       localStorage.removeItem("refreshToken");
       localStorage.removeItem("accessToken");
+      localStorage.removeItem("user");
       setIsAuthenticated(false);
+      setUser(null);
       throw new Error(error?.message || 'Login failed');
     }
   };
@@ -48,12 +69,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     localStorage.removeItem("refreshToken");
     localStorage.removeItem("accessToken");
+    localStorage.removeItem("user");
     setIsAuthenticated(false);
+    setUser(null);
     window.location.reload();
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, login, register, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

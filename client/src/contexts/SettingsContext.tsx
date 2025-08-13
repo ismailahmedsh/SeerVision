@@ -5,24 +5,9 @@ interface SettingsData {
   profile: {
     name: string
     email: string
-    timezone: string
-  }
-  notifications: {
-    emailAlerts: boolean
-    pushNotifications: boolean
-    analysisUpdates: boolean
-    systemMaintenance: boolean
   }
   analysis: {
     defaultInterval: number
-    confidenceThreshold: number
-    maxHistoryDays: number
-    autoArchive: boolean
-  }
-  display: {
-    theme: string
-    language: string
-    dateFormat: string
   }
 }
 
@@ -43,29 +28,63 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const loadSettings = async () => {
     try {
       const response = await getSettings()
-      if (response && typeof response === 'object' && 'success' in response && response.success && 'settings' in response && response.settings) {
+
+      
+      if (response && typeof response === 'object' && 'settings' in response && response.settings) {
         const settingsData = response.settings as SettingsData
-        let adjustedInterval = settingsData.analysis?.defaultInterval || 30
+        let adjustedInterval = settingsData.analysis?.defaultInterval || 6
         if (adjustedInterval < 6) {
           adjustedInterval = 6
         }
+        if (adjustedInterval > 120) {
+          adjustedInterval = 120
+        }
         setSettings(settingsData)
+
+      } else if (response && typeof response === 'object' && 'success' in response && response.success && 'settings' in response && response.settings) {
+        // Handle response with success property
+        const settingsData = response.settings as SettingsData
+        let adjustedInterval = settingsData.analysis?.defaultInterval || 6
+        if (adjustedInterval < 6) {
+          adjustedInterval = 6
+        }
+        if (adjustedInterval > 120) {
+          adjustedInterval = 120
+        }
+        setSettings(settingsData)
+
+      } else {
+        console.error('[SETTINGS] Invalid response format:', response)
       }
     } catch (error) {
-      console.error('Failed to load settings:', error)
+      console.error('[SETTINGS] Failed to load settings:', error)
+    } finally {
+      setLoading(false)
+
     }
   }
 
   useEffect(() => {
     loadSettings()
+    
+    // Fallback timeout to prevent infinite loading
+    const timeout = setTimeout(() => {
+      if (loading) {
+
+        setLoading(false)
+      }
+    }, 5000) // 5 second timeout
+    
+    return () => clearTimeout(timeout)
   }, [])
 
   const updateSetting = (section: keyof SettingsData, key: string, value: any) => {
     if (!settings) return
     
-    // Enforce minimum analysis interval
-    if (section === 'analysis' && key === 'defaultInterval' && value < 6) {
-      value = 6
+    // Enforce analysis interval range (6-120 seconds)
+    if (section === 'analysis' && key === 'defaultInterval') {
+      if (value < 6) value = 6
+      if (value > 120) value = 120
     }
     
     setSettings({
@@ -93,7 +112,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const updateAnalysisInterval = async (value: number) => {
     try {
-      const enforcedValue = Math.max(6, value)
+      const enforcedValue = Math.max(6, Math.min(120, value))
       const response = await updateSettings({
         analysis: {
           ...settings?.analysis,

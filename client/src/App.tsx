@@ -10,7 +10,7 @@ import { DashboardLayout } from "./components/DashboardLayout"
 import { Dashboard } from "./pages/Dashboard"
 import { Cameras } from "./pages/Cameras"
 import { Analytics } from "./pages/Analytics"
-import { History } from "./pages/History"
+
 import { Settings } from "./pages/Settings"
 import { BlankPage } from "./pages/BlankPage"
 
@@ -44,13 +44,7 @@ function App() {
                 </DashboardLayout>
               </ProtectedRoute>
             } />
-            <Route path="/history" element={
-              <ProtectedRoute>
-                <DashboardLayout>
-                  <History />
-                </DashboardLayout>
-              </ProtectedRoute>
-            } />
+
             <Route path="/settings" element={
               <ProtectedRoute>
                 <DashboardLayout>

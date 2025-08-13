@@ -56,7 +56,8 @@ const initializeTables = async () => {
           name TEXT DEFAULT '',
           role TEXT DEFAULT 'user',
           refreshToken TEXT,
-          lastLogin DATETIME,
+          lastLoginAt DATETIME,
+          isActive INTEGER DEFAULT 1,
           createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
           updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
         )
@@ -116,6 +117,21 @@ const initializeTables = async () => {
         )
       `;
 
+      // Live Results table for Analytics
+      const createLiveResultsTable = `
+        CREATE TABLE IF NOT EXISTS live_results (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          cameraId INTEGER NOT NULL,
+          promptId TEXT NOT NULL,
+          promptText TEXT NOT NULL,
+          success INTEGER DEFAULT 1,
+          confidence REAL DEFAULT 0.0,
+          meta TEXT,
+          ts DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (cameraId) REFERENCES cameras (id) ON DELETE CASCADE
+        )
+      `;
+
       // Execute table creation queries
       db.serialize(() => {
         console.log('[DATABASE] Creating users table...');
@@ -157,32 +173,68 @@ const initializeTables = async () => {
           }
           console.log('[DATABASE] Analysis results table created successfully');
           
-          // Run migrations after all tables are created
-          runMigrations()
-            .then(() => {
-              console.log('[DATABASE] All tables and migrations completed successfully');
-              // Ensure memory column exists as a fallback
-              return ensureMemoryColumnExists();
-            })
-            .then(() => {
-              console.log('[DATABASE] Memory column verification completed');
-              
-              // Log Memory subsystem readiness
-              console.log('[MEMORY_SUBSYSTEM] Memory subsystem ready');
-              console.log('[MEMORY_SUBSYSTEM] Buffer idle timeout: 5 minutes');
-              console.log('[MEMORY_SUBSYSTEM] Buffer size formula:');
-              console.log('[MEMORY_SUBSYSTEM] - ≥120s interval: 80 entries');
-              console.log('[MEMORY_SUBSYSTEM] - ≥60s interval: 50 entries');
-              console.log('[MEMORY_SUBSYSTEM] - <10s interval: max(15, min(20, 2×interval))');
-              console.log('[MEMORY_SUBSYSTEM] - 10-119s interval: 20 + (interval-10) × (30/50)');
-              console.log('[MEMORY_SUBSYSTEM] Memory subsystem initialization complete');
-              
-              resolve();
-            })
-            .catch((migrationError) => {
-              console.error('[DATABASE] Migration failed:', migrationError);
-              reject(migrationError);
+          console.log('[DATABASE] Creating live_results table...');
+          db.run(createLiveResultsTable, (err) => {
+            if (err) {
+              console.error('[DATABASE] Error creating live_results table:', err.message);
+              reject(err);
+              return;
+            }
+            console.log('[DATABASE] Live results table created successfully');
+            
+            // Create indices for live_results table for better analytics performance
+            console.log('[DATABASE] Creating indices for live_results table...');
+            db.run("CREATE INDEX IF NOT EXISTS idx_live_results_ts ON live_results(ts)", (err) => {
+              if (err) {
+                console.error('[DATABASE] Error creating ts index:', err.message);
+              } else {
+                console.log('[DATABASE] ts index created successfully');
+              }
             });
+            
+            db.run("CREATE INDEX IF NOT EXISTS idx_live_results_camera_ts ON live_results(cameraId, ts)", (err) => {
+              if (err) {
+                console.error('[DATABASE] Error creating cameraId+ts index:', err.message);
+              } else {
+                console.log('[DATABASE] cameraId+ts index created successfully');
+              }
+            });
+            
+            db.run("CREATE INDEX IF NOT EXISTS idx_live_results_prompt_ts ON live_results(promptId, ts)", (err) => {
+              if (err) {
+                console.error('[DATABASE] Error creating promptId+ts index:', err.message);
+              } else {
+                console.log('[DATABASE] promptId+ts index created successfully');
+              }
+            });
+            
+            // Run migrations after all tables are created
+            runMigrations()
+              .then(() => {
+                console.log('[DATABASE] All tables and migrations completed successfully');
+                // Ensure memory column exists as a fallback
+                return ensureMemoryColumnExists();
+              })
+              .then(() => {
+                console.log('[DATABASE] Memory column verification completed');
+                
+                // Log Memory subsystem readiness
+                console.log('[MEMORY_SUBSYSTEM] Memory subsystem ready');
+                console.log('[MEMORY_SUBSYSTEM] Buffer idle timeout: 5 minutes');
+                console.log('[MEMORY_SUBSYSTEM] Buffer size formula:');
+                console.log('[MEMORY_SUBSYSTEM] - ≥120s interval: 80 entries');
+                console.log('[MEMORY_SUBSYSTEM] - ≥60s interval: 50 entries');
+                console.log('[MEMORY_SUBSYSTEM] - <10s interval: max(15, min(20, 2×interval))');
+                console.log('[MEMORY_SUBSYSTEM] - 10-119s interval: 20 + (interval-10) × (30/50)');
+                console.log('[MEMORY_SUBSYSTEM] Memory subsystem initialization complete');
+                
+                resolve();
+              })
+              .catch((migrationError) => {
+                console.error('[DATABASE] Migration failed:', migrationError);
+                reject(migrationError);
+              });
+          });
         });
       });
 
@@ -265,32 +317,71 @@ const runMigrations = async () => {
               db.run("ALTER TABLE cameras ADD COLUMN memory INTEGER DEFAULT 0", (alterErr) => {
                 if (alterErr) {
                   console.error('[DATABASE] Error adding memory column to cameras:', alterErr.message);
-                  reject(alterErr);
+                  reject(err);
                   return;
                 }
                 console.log('[DATABASE] memory column added to cameras successfully');
                 
-                // Verify the column was added
-                db.all("PRAGMA table_info(cameras)", (verifyErr, verifyColumns) => {
-                  if (verifyErr) {
-                    console.error('[DATABASE] Error verifying memory column:', verifyErr.message);
-                    reject(verifyErr);
-                    return;
-                  }
-                  const hasMemoryAfterAdd = verifyColumns.some(col => col.name === 'memory');
-                  console.log('[DATABASE] Memory column verification:', hasMemoryAfterAdd);
-                  if (hasMemoryAfterAdd) {
-                    console.log('[DATABASE] Memory column successfully added and verified');
-                    resolve();
-                  } else {
-                    console.error('[DATABASE] Memory column was not added successfully');
-                    reject(new Error('Failed to add memory column to cameras table'));
-                  }
-                });
+                // Continue with users table schema check
+                checkUsersTableSchema();
               });
             } else {
               console.log('[DATABASE] memory column already exists in cameras table');
-              resolve();
+              // Continue with users table schema check
+              checkUsersTableSchema();
+            }
+          });
+        }
+
+        function checkUsersTableSchema() {
+          // Check if users table has the correct schema
+          db.all("PRAGMA table_info(users)", (err, userColumns) => {
+            if (err) {
+              console.error('[DATABASE] Error checking users table info:', err.message);
+              reject(err);
+              return;
+            }
+
+            console.log('[DATABASE] Users table columns:', userColumns.map(col => col.name));
+            
+            const hasLastLoginAt = userColumns.some(col => col.name === 'lastLoginAt');
+            const hasIsActive = userColumns.some(col => col.name === 'isActive');
+            
+            // Fix lastLogin column name if needed
+            if (!hasLastLoginAt) {
+              console.log('[DATABASE] Fixing users table schema - adding lastLoginAt column...');
+              db.run("ALTER TABLE users ADD COLUMN lastLoginAt DATETIME", (alterErr) => {
+                if (alterErr) {
+                  console.error('[DATABASE] Error adding lastLoginAt column:', alterErr.message);
+                } else {
+                  console.log('[DATABASE] lastLoginAt column added successfully');
+                }
+                
+                // Continue with isActive column check
+                checkIsActiveColumn();
+              });
+            } else {
+              console.log('[DATABASE] lastLoginAt column already exists');
+              checkIsActiveColumn();
+            }
+
+            function checkIsActiveColumn() {
+              if (!hasIsActive) {
+                console.log('[DATABASE] Adding isActive column to users table...');
+                db.run("ALTER TABLE users ADD COLUMN isActive INTEGER DEFAULT 1", (alterErr) => {
+                  if (alterErr) {
+                    console.error('[DATABASE] Error adding isActive column:', alterErr.message);
+                  } else {
+                    console.log('[DATABASE] isActive column added successfully');
+                  }
+                  
+                  // Migration complete
+                  resolve();
+                });
+              } else {
+                console.log('[DATABASE] isActive column already exists');
+                resolve();
+              }
             }
           });
         }

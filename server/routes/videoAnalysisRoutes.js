@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const VideoAnalysis = require('../models/VideoAnalysis');
 const Camera = require('../models/Camera');
+const LiveResult = require('../models/LiveResult');
 const llavaService = require('../services/llavaService');
 const frameCaptureService = require('../services/frameCaptureService');
 const memoryService = require('../services/memoryService');
@@ -219,6 +220,31 @@ ONLY return your response as a raw JSON object enclosed in curly braces { } with
       };
 
       await VideoAnalysis.createResult(resultData);
+
+      // Store analytics data for the Analytics page
+      try {
+        const analysisSession = await VideoAnalysis.findByStreamId(streamId);
+        if (analysisSession) {
+          await LiveResult.create({
+            cameraId: analysisSession.cameraId,
+            promptId: streamId, // Using streamId as promptId for now
+            promptText: analysisSession.prompt,
+            success: true,
+            confidence: result.accuracyScore || 0.8, // Default confidence if not provided
+            meta: {
+              streamId,
+              analysisInterval,
+              memory: useMemory,
+              processingTime: result.processingTime,
+              answerLength: result.answer?.length || 0
+            }
+          });
+          console.log('[ANALYTICS] LiveResult stored successfully for analytics');
+        }
+      } catch (analyticsError) {
+        console.error('[ANALYTICS] Failed to store LiveResult for analytics:', analyticsError.message);
+        // Don't fail the main analysis if analytics storage fails
+      }
 
       // CRITICAL: Store the main analysis result for next frame continuity
       if (useMemory && result.answer && result.answer.trim().length > 0) {

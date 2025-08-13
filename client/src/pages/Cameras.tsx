@@ -1,12 +1,11 @@
 import { useState, useEffect } from "react"
-import { Camera, Plus, Wifi, WifiOff, Edit, Trash2, Settings } from "lucide-react"
+import { Camera, Plus, Wifi, WifiOff, Trash2, Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { getCameras, deleteCamera } from "@/api/cameras"
 import { AddCameraDialog } from "@/components/dashboard/AddCameraDialog"
-import { EditCameraDialog } from "@/components/dashboard/EditCameraDialog"
 import { CameraSettingsDialog } from "@/components/dashboard/CameraSettingsDialog"
 import { useToast } from "@/hooks/useToast"
 
@@ -26,7 +25,6 @@ export function Cameras() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [showAddDialog, setShowAddDialog] = useState(false)
-  const [showEditDialog, setShowEditDialog] = useState(false)
   const [showSettingsDialog, setShowSettingsDialog] = useState(false)
   const [selectedCamera, setSelectedCamera] = useState<Camera | null>(null)
   const { toast } = useToast()
@@ -68,11 +66,6 @@ export function Cameras() {
         variant: "destructive",
       })
     }
-  }
-
-  const handleEditCamera = (camera: Camera) => {
-    setSelectedCamera(camera)
-    setShowEditDialog(true)
   }
 
   const handleCameraSettings = (camera: Camera) => {
@@ -174,15 +167,6 @@ export function Cameras() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="flex-1 hover:bg-blue-50 hover:border-blue-300 dark:hover:bg-blue-900/20"
-                    onClick={() => handleEditCamera(camera)}
-                  >
-                    <Edit className="h-3 w-3 mr-1" />
-                    Edit
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
                     className="flex-1 hover:bg-purple-50 hover:border-purple-300 dark:hover:bg-purple-900/20"
                     onClick={() => handleCameraSettings(camera)}
                   >
@@ -229,13 +213,6 @@ export function Cameras() {
         open={showAddDialog}
         onOpenChange={setShowAddDialog}
         onCameraAdded={loadCameras}
-      />
-
-      <EditCameraDialog
-        open={showEditDialog}
-        onOpenChange={setShowEditDialog}
-        onCameraUpdated={loadCameras}
-        camera={selectedCamera}
       />
 
       <CameraSettingsDialog

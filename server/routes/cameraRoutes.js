@@ -159,10 +159,6 @@ router.get('/:id/frame', async (req, res) => {
       return res.status(400).json({ error: 'YouTube URLs are not supported for frame capture' });
     }
 
-    if (camera.streamUrl.toLowerCase().startsWith('rtsp://')) {
-      return res.status(400).json({ error: 'RTSP streams cannot be captured directly in browsers' });
-    }
-
     try {
       const response = await axios({
         method: 'GET',
@@ -221,10 +217,6 @@ router.get('/:id/stream', async (req, res) => {
 
     if (camera.streamUrl.includes('youtube.com') || camera.streamUrl.includes('youtu.be')) {
       return res.status(400).send('YouTube URLs are not supported for streaming');
-    }
-
-    if (camera.streamUrl.toLowerCase().startsWith('rtsp://')) {
-      return res.status(400).send('RTSP streams cannot be played directly in browsers');
     }
 
     res.setHeader('Cache-Control', 'no-cache');

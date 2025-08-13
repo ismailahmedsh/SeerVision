@@ -175,7 +175,7 @@ class CameraService {
       if (url.includes('youtube.com') || url.includes('youtu.be')) {
         return {
           success: false,
-          message: 'YouTube URLs are not supported. Please use direct video stream URLs (e.g., .mp4, .m3u8, RTSP streams)'
+          message: 'YouTube URLs are not supported. Please use USB cameras only.'
         };
       }
 
@@ -184,31 +184,14 @@ class CameraService {
       let errorMessage = '';
 
       switch (type) {
-        case 'RTSP Stream':
-        case 'rtsp':
-          isValidUrl = url.toLowerCase().startsWith('rtsp://');
-          errorMessage = 'RTSP URLs must start with rtsp://';
-          break;
-        case 'HTTP Stream':
-        case 'http':
-          isValidUrl = url.toLowerCase().startsWith('http://') || url.toLowerCase().startsWith('https://');
-          errorMessage = 'HTTP URLs must start with http:// or https://';
-          break;
-        case 'IP Camera':
-        case 'ip':
-          isValidUrl = url.toLowerCase().startsWith('http://') || url.toLowerCase().startsWith('https://');
-          errorMessage = 'IP Camera URLs must start with http:// or https://';
-          break;
         case 'USB Camera':
         case 'usb':
           // For USB cameras, we might use device paths or indices
           isValidUrl = true; // Accept any format for USB cameras
           break;
         default:
-          isValidUrl = url.toLowerCase().startsWith('http://') || 
-                      url.toLowerCase().startsWith('https://') || 
-                      url.toLowerCase().startsWith('rtsp://');
-          errorMessage = 'URL must start with http://, https://, or rtsp://';
+          isValidUrl = false;
+          errorMessage = 'Only USB cameras are currently supported';
       }
 
       if (!isValidUrl) {

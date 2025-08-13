@@ -5,13 +5,14 @@ const express = require("express");
 const session = require("express-session");
 
 // Load route modules
-let basicRoutes, authRoutes, userRoutes, cameraRoutes, videoAnalysisRoutes;
+let basicRoutes, authRoutes, userRoutes, cameraRoutes, videoAnalysisRoutes, analyticsRoutes;
 try {
   basicRoutes = require("./routes/index");
   authRoutes = require("./routes/authRoutes");
   userRoutes = require("./routes/userRoutes");
   cameraRoutes = require("./routes/cameraRoutes");
   videoAnalysisRoutes = require("./routes/videoAnalysisRoutes");
+  analyticsRoutes = require("./routes/analyticsRoutes");
 } catch (error) {
   console.error('[SERVER] Error loading route modules:', error);
   process.exit(1);
@@ -31,6 +32,16 @@ const cors = require("cors");
 
 if (!process.env.DATABASE_PATH) {
   console.error("Error: DATABASE_PATH variable in .env missing.");
+  process.exit(-1);
+}
+
+if (!process.env.JWT_SECRET) {
+  console.error("Error: JWT_SECRET variable in .env missing.");
+  process.exit(-1);
+}
+
+if (!process.env.REFRESH_TOKEN_SECRET) {
+  console.error("Error: REFRESH_TOKEN_SECRET variable in .env missing.");
   process.exit(-1);
 }
 
@@ -75,6 +86,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/cameras', cameraRoutes);
 app.use('/api/video-analysis', videoAnalysisRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // 404 handler
 app.use((req, res) => {

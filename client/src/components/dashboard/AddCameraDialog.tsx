@@ -238,19 +238,6 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
     }
   }
 
-  const getStreamUrlPlaceholder = () => {
-    switch (watchedType) {
-      case 'rtsp':
-        return 'rtsp://username:password@192.168.1.100:554/stream'
-      case 'http':
-        return 'http://192.168.1.100:8080/video'
-      case 'ip':
-        return 'http://192.168.1.100/mjpg/video.mjpg'
-      default:
-        return 'Enter camera stream URL'
-    }
-  }
-
   const isUsbCamera = watchedType === 'usb'
 
   return (
@@ -290,9 +277,6 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
                     <SelectValue placeholder="Select camera type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="rtsp">RTSP Stream</SelectItem>
-                    <SelectItem value="http">HTTP Stream</SelectItem>
-                    <SelectItem value="ip">IP Camera</SelectItem>
                     <SelectItem value="usb">USB Camera</SelectItem>
                   </SelectContent>
                 </Select>
@@ -340,23 +324,20 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
                       </Button>
                     </div>
                   )}
-                  <p className="text-xs text-slate-500">
-                    Select a USB camera connected to your computer
-                  </p>
                 </div>
               ) : (
                 <div className="space-y-2">
                   <Label htmlFor="streamUrl">Stream URL</Label>
                   <Input
                     id="streamUrl"
-                    placeholder={getStreamUrlPlaceholder()}
+                    placeholder="Enter camera stream URL"
                     {...register('streamUrl', { required: 'Stream URL is required' })}
                   />
                   {errors.streamUrl && (
                     <p className="text-sm text-red-600">{errors.streamUrl.message}</p>
                   )}
                   <p className="text-xs text-slate-500">
-                    Include username and password if required (e.g., rtsp://user:pass@ip:port/stream)
+                    Only USB cameras are currently supported
                   </p>
                 </div>
               )}

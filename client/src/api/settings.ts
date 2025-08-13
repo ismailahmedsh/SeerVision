@@ -3,34 +3,20 @@ import api from './api';
 // Description: Get user settings
 // Endpoint: GET /api/settings
 // Request: {}
-// Response: { settings: { profile: { name: string, email: string, timezone: string }, notifications: { emailAlerts: boolean, pushNotifications: boolean, analysisUpdates: boolean, systemMaintenance: boolean }, analysis: { defaultInterval: number, confidenceThreshold: number, maxHistoryDays: number, autoArchive: boolean }, display: { theme: string, language: string, dateFormat: string } } }
+// Response: { settings: { profile: { name: string, email: string }, analysis: { defaultInterval: number } } }
 export const getSettings = () => {
   // Mocking the response
   return new Promise((resolve) => {
     setTimeout(() => {
       resolve({
+        success: true,
         settings: {
           profile: {
             name: 'John Doe',
-            email: 'john.doe@example.com',
-            timezone: 'America/New_York'
-          },
-          notifications: {
-            emailAlerts: true,
-            pushNotifications: false,
-            analysisUpdates: true,
-            systemMaintenance: true
+            email: 'john.doe@example.com'
           },
           analysis: {
-            defaultInterval: 2,
-            confidenceThreshold: 0.8,
-            maxHistoryDays: 30,
-            autoArchive: true
-          },
-          display: {
-            theme: 'light',
-            language: 'en',
-            dateFormat: 'MM/DD/YYYY'
+            defaultInterval: 6
           }
         }
       });
@@ -52,6 +38,16 @@ export const updateSettings = (settings: any) => {
   // Mocking the response
   return new Promise((resolve) => {
     setTimeout(() => {
+      // Update the mock settings with the new values
+      if (settings.profile?.name) {
+        // In a real app, this would update the user's name in the database
+        console.log('Updating profile name to:', settings.profile.name);
+      }
+      if (settings.analysis?.defaultInterval) {
+        // In a real app, this would update the analysis interval in the database
+        console.log('Updating analysis interval to:', settings.analysis.defaultInterval);
+      }
+      
       resolve({
         success: true,
         message: 'Settings updated successfully'
