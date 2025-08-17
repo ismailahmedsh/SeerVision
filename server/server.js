@@ -5,7 +5,7 @@ const express = require("express");
 const session = require("express-session");
 
 // Load route modules
-let basicRoutes, authRoutes, userRoutes, cameraRoutes, videoAnalysisRoutes, analyticsRoutes;
+let basicRoutes, authRoutes, userRoutes, cameraRoutes, videoAnalysisRoutes, analyticsRoutes, webhookRoutes;
 try {
   basicRoutes = require("./routes/index");
   authRoutes = require("./routes/authRoutes");
@@ -13,6 +13,7 @@ try {
   cameraRoutes = require("./routes/cameraRoutes");
   videoAnalysisRoutes = require("./routes/videoAnalysisRoutes");
   analyticsRoutes = require("./routes/analyticsRoutes");
+  webhookRoutes = require("./routes/webhookRoutes");
 } catch (error) {
   console.error('[SERVER] Error loading route modules:', error);
   process.exit(1);
@@ -87,6 +88,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/cameras', cameraRoutes);
 app.use('/api/video-analysis', videoAnalysisRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 // 404 handler
 app.use((req, res) => {

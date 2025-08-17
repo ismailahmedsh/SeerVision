@@ -1,28 +1,50 @@
 import api from './api';
 
+// Simple cache to prevent duplicate API calls
+let cameraCache: { data: any; timestamp: number } | null = null
+const CACHE_DURATION = 2000 // 2 seconds cache
+
 // Description: Get all cameras for the current user
 // Endpoint: GET /api/cameras
 // Request: {}
 // Response: { cameras: Array<{ _id: string, name: string, type: string, streamUrl: string, status: string, analysisInterval: number, memory: boolean }> }
 export const getCameras = async () => {
-  console.log('[CAMERAS_API] Getting cameras')
+  // Add stack trace to identify where API call is coming from
+  const caller = new Error().stack?.split('\n')[2]?.trim() || 'unknown'
+  console.log('[CAMERAS_API] Getting cameras from:', caller)
 
+  // Check cache first
+  const now = Date.now()
+  if (cameraCache && (now - cameraCache.timestamp) < CACHE_DURATION) {
+    console.log('[CAMERAS_API] Returning cached data')
+    return cameraCache.data
+  }
 
   try {
-
+    console.log('[CAMERAS_API] Making fresh API call')
     const response = await api.get('/api/cameras');
     console.log('[CAMERAS_API] API response received');
     console.log('[CAMERAS_API] Cameras retrieved successfully')
+    
+    // Cache the response
+    cameraCache = {
+      data: response.data,
+      timestamp: now
+    }
+    
     return response.data;
   } catch (error) {
-          console.error('[CAMERAS_API] Error getting cameras')
+    console.error('[CAMERAS_API] Error getting cameras')
     console.error('[CAMERAS_API] Error details:', error.message);
-
-
-
-          console.error('[CAMERAS_API] End get cameras API error')
+    console.error('[CAMERAS_API] End get cameras API error')
     throw new Error(error?.response?.data?.error || error.message);
   }
+}
+
+// Function to invalidate cache when cameras are updated
+export const invalidateCameraCache = () => {
+  console.log('[CAMERAS_API] Invalidating camera cache')
+  cameraCache = null
 }
 
 // Description: Add a new camera
@@ -34,6 +56,7 @@ export const addCamera = async (data: { name: string; type: string; streamUrl: s
     console.log('[CAMERAS_API] Adding camera:', data)
     const response = await api.post('/api/cameras', data);
     console.log('[CAMERAS_API] Camera added successfully');
+    invalidateCameraCache(); // Invalidate cache when camera is added
     return response.data;
   } catch (error) {
     console.error('[CAMERAS_API] Add camera error:', error)
@@ -66,6 +89,7 @@ export const deleteCamera = async (id: string) => {
     console.log('[CAMERAS_API] Deleting camera with ID:', id)
     const response = await api.delete(`/api/cameras/${id}`);
     console.log('[CAMERAS_API] Camera deleted successfully');
+    invalidateCameraCache(); // Invalidate cache when camera is deleted
     return response.data;
   } catch (error) {
     console.error('[CAMERAS_API] Delete camera error:', error)
@@ -114,6 +138,7 @@ export const updateCameraSettings = async (id: string, settings: any) => {
     console.log('[CAMERAS_API] Updating camera settings for ID:', id, settings)
     const response = await api.put(`/api/cameras/${id}/settings`, { settings });
     console.log('[CAMERAS_API] Update settings response:', response.data)
+    invalidateCameraCache(); // Invalidate cache when camera settings are updated
     return response.data;
   } catch (error) {
     console.error('[CAMERAS_API] Update settings error:', error)

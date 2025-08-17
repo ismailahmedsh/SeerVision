@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Camera,
   BarChart3,
+  Zap,
   Settings,
   X,
   ChevronLeft
@@ -16,6 +17,7 @@ const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Cameras", href: "/cameras", icon: Camera },
   { name: "Analytics", href: "/analytics", icon: BarChart3 },
+  { name: "Connections", href: "/connections", icon: Zap },
   { name: "Settings", href: "/settings", icon: Settings },
 ]
 
