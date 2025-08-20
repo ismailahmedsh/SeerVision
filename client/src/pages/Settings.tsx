@@ -122,7 +122,7 @@ export function Settings() {
 
     try {
       setChangingPassword(true)
-      // TODO: Implement password change API call
+
       // await changePassword(passwordData.oldPassword, passwordData.newPassword)
       
       toast({
@@ -152,7 +152,7 @@ export function Settings() {
   const handleResetAnalyticsData = async () => {
     try {
       setResettingData(true)
-      // TODO: Implement API call to reset analytics data
+
       // await resetAnalyticsData()
       
       toast({

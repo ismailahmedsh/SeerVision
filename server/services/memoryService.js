@@ -1,6 +1,4 @@
 const llavaService = require('./llavaService');
-const sharp = require('sharp');
-const crypto = require('crypto');
 
 class MemoryService {
   constructor() {
@@ -13,6 +11,10 @@ class MemoryService {
     this.circuitBreakers = new Map();
     this.deferredNoveltyResults = new Map();
 
+    // NEW: Canonical scene descriptions with embedding similarity
+    this.canonicalSummaries = new Map(); // streamId -> latest canonical scene summary
+    this.embeddingCache = new Map(); // streamId -> latest embedding
+
     this.config = {
       contextMaxLines: parseInt(process.env.CONTEXT_MAX_LINES) || 3,
       analysisMaxConcurrency: parseInt(process.env.ANALYSIS_MAX_CONCURRENCY) || 2,
@@ -24,197 +26,229 @@ class MemoryService {
     this.logSampleRate = process.env.MEMORY_LOG_SAMPLE_RATE ? parseInt(process.env.MEMORY_LOG_SAMPLE_RATE) : 1;
     this.requestCount = 0;
 
-    console.log('[MEMORY_SERVICE] Initialized with NO TIMEOUTS for novelty detection');
-    console.log('[MEMORY_SERVICE] Config:', this.config);
+
   }
 
   storePreviousAnswer(streamId, answer) {
     if (answer && answer.trim().length > 0) {
-      this.previousAnswers.set(streamId, answer.trim());
-      console.log('[MEMORY_SERVICE] Stored previous answer for stream ' + streamId + ': "' + answer.substring(0, 100) + (answer.length > 100 ? '...' : '') + '"');
-    }
-  }
-
-  getPreviousAnswer(streamId) {
-    return this.previousAnswers.get(streamId) || null;
-  }
-
-  /**
-   * NEW DYNAMIC BUFFER SIZE CALCULATION based on analysis interval
-   */
-  getBufferSize(intervalSeconds) {
-    console.log('[MEMORY_SERVICE] Calculating buffer size for interval:', intervalSeconds + 's');
-    
-    let bufferSize;
-    if (intervalSeconds <= 10) {
-      bufferSize = 25;
-    } else if (intervalSeconds <= 20) {
-      bufferSize = 35;
-    } else if (intervalSeconds <= 30) {
-      bufferSize = 45;
-    } else if (intervalSeconds <= 60) {
-      bufferSize = 55;
-    } else if (intervalSeconds <= 120) {
-      bufferSize = 65;
-    } else {
-      bufferSize = 65; // Cap at 65 frames for >120s
-    }
-    
-    console.log('[MEMORY_SERVICE] Buffer size for ' + intervalSeconds + 's interval: ' + bufferSize + ' frames');
-    return bufferSize;
-  }
-
-  getBuffer(streamId) {
-    const buffer = this.buffers.get(streamId);
-    if (buffer) {
-      buffer.lastAccess = new Date();
-      return buffer.entries;
-    }
-    return [];
-  }
-
-  initializeBuffer(streamId, intervalSeconds) {
-    if (!this.buffers.has(streamId)) {
-      const bufferSize = this.getBufferSize(intervalSeconds);
+      // Clean markdown formatting and filter pattern-inducing responses
+      let cleanedAnswer = answer.trim();
       
-      this.buffers.set(streamId, {
-        entries: [],
-        lastAccess: new Date(),
-        interval: intervalSeconds,
-        maxSize: bufferSize // Store the calculated size
-      });
+      // Remove markdown code blocks that break JSON parsing
+      if (cleanedAnswer.startsWith('```json') && cleanedAnswer.endsWith('```')) {
+        cleanedAnswer = cleanedAnswer.slice(7, -3).trim(); // Remove ```json and ```
 
-      this.metrics.set(streamId, {
-        noveltyCallsPerMin: 0,
-        noveltyTimeouts: 0,
-        noveltySkippedPrefilter: 0,
-        memoryEntriesAdded: 0,
-        memoryDuplicatesSkipped: 0,
-        contextLinesSent: 0,
-        lastMetricsReset: Date.now()
-      });
+      } else if (cleanedAnswer.startsWith('```') && cleanedAnswer.endsWith('```')) {
+        cleanedAnswer = cleanedAnswer.slice(3, -3).trim(); // Remove generic ```
 
-      this.frameCounters.set(streamId, 0);
-      console.log('[MEMORY_SERVICE] Initialized buffer for stream ' + streamId + ' with size ' + bufferSize + ' (interval: ' + intervalSeconds + 's)');
-    } else {
-      // Update buffer size if interval changed
-      const buffer = this.buffers.get(streamId);
-      const newBufferSize = this.getBufferSize(intervalSeconds);
-      
-      if (buffer.interval !== intervalSeconds || buffer.maxSize !== newBufferSize) {
-        console.log('[MEMORY_SERVICE] Updating buffer for stream ' + streamId + ' - interval changed from ' + buffer.interval + 's to ' + intervalSeconds + 's');
-        console.log('[MEMORY_SERVICE] Buffer size changed from ' + buffer.maxSize + ' to ' + newBufferSize + ' frames');
-        
-        buffer.interval = intervalSeconds;
-        buffer.maxSize = newBufferSize;
-        
-        // Trim buffer if new size is smaller
-        if (buffer.entries.length > newBufferSize) {
-          const removedCount = buffer.entries.length - newBufferSize;
-          buffer.entries = buffer.entries.slice(-newBufferSize);
-          console.log('[MEMORY_SERVICE] Trimmed buffer to new size, removed ' + removedCount + ' old entries');
-        }
       }
+      
+      // Apply pattern filtering
+      cleanedAnswer = this.filterPatternInducingContent(cleanedAnswer);
+      
+      this.previousAnswers.set(streamId, cleanedAnswer);
+
     }
-    return this.getBuffer(streamId);
   }
 
-  async seedBufferFromMainAnalysis(streamId, mainAnalysisResult, intervalSeconds) {
+  async checkCanonicalSimilarity(streamId, newSceneDescription) {
     try {
-      this.initializeBuffer(streamId, intervalSeconds);
-      const buffer = this.buffers.get(streamId);
 
-      if (buffer.entries.length > 0) {
-        console.log('[MEMORY_SERVICE] Buffer already seeded for stream ' + streamId + ', skipping main analysis seeding');
-        return;
+      
+      const lastSummary = this.canonicalSummaries.get(streamId);
+      if (!lastSummary) {
+        // First frame - always accept
+
+        return { shouldUpdate: true, similarity: 0.0 };
       }
+      
+      // Generate embeddings for both summaries
+      const [newEmbedding, lastEmbedding] = await Promise.all([
+        this.generateEmbedding(newSceneDescription),
+        this.embeddingCache.get(streamId) || this.generateEmbedding(lastSummary)
+      ]);
+      
+      if (!newEmbedding || !lastEmbedding) {
 
-      const sceneDescription = mainAnalysisResult && mainAnalysisResult.length > 10
-        ? 'Scene: ' + mainAnalysisResult.substring(0, 150) + (mainAnalysisResult.length > 150 ? '...' : '')
-        : 'Scene description from main analysis';
+        return { shouldUpdate: true, similarity: 0.0 };
+      }
+      
+      // Calculate cosine similarity
+      const similarity = this.calculateCosineSimilarity(newEmbedding, lastEmbedding);
+      const shouldUpdate = similarity < 0.85; // Updated threshold to 0.85
+      
+      const summaryLength = newSceneDescription.length;
+      const decision = shouldUpdate ? 'accepted' : 'skipped';
 
-      const seedEntry = {
-        frame: 1,
-        description: sceneDescription,
-        timestamp: new Date().toISOString(),
-        noveltyFlag: 'seeded_from_main'
-      };
-
-      buffer.entries.push(seedEntry);
-
-      const metrics = this.metrics.get(streamId);
-      if (metrics) metrics.memoryEntriesAdded++;
-
-      console.log('[MEMORY_SERVICE] Buffer seeded with entry: "' + sceneDescription + '"');
+      
+      return { shouldUpdate, similarity };
+      
     } catch (error) {
-      console.error('[MEMORY_SERVICE] Failed to seed buffer from main analysis:', error.message);
+      console.error('[MEMORY_SERVICE] Error in similarity check:', error.message);
+      // On error, assume significant change to avoid missing updates
+      return { shouldUpdate: true, similarity: 0.0 };
     }
   }
 
-  isDuplicateText(streamId, newDescription) {
-    const buffer = this.buffers.get(streamId);
-    if (!buffer || buffer.entries.length === 0) return false;
-
-    const lastEntry = buffer.entries[buffer.entries.length - 1];
-    const normalizedNew = newDescription.toLowerCase().trim();
-    const normalizedLast = lastEntry.description.toLowerCase().trim();
-
-    // More flexible duplicate detection - allow for slight variations
-    if (normalizedNew === normalizedLast) return true;
-    
-    // Check if the new description is very similar (90% similarity)
-    const similarity = this.calculateTextSimilarity(normalizedNew, normalizedLast);
-    if (similarity > 0.9) {
-      console.log('[MEMORY_SERVICE] High similarity detected (' + Math.round(similarity * 100) + '%), treating as duplicate');
-      return true;
-    }
-    
-    return false;
-  }
-
-  calculateTextSimilarity(text1, text2) {
-    // Simple similarity calculation using word overlap
-    const words1 = new Set(text1.split(/\s+/));
-    const words2 = new Set(text2.split(/\s+/));
-    
-    const intersection = new Set([...words1].filter(x => words2.has(x)));
-    const union = new Set([...words1, ...words2]);
-    
-    return intersection.size / union.size;
-  }
-
-  async checkNoveltyAndGetSceneDescription(streamId, frameBase64, intervalSeconds) {
+  async generateEmbedding(text) {
     try {
-      this.initializeBuffer(streamId, intervalSeconds);
+      // Use Ollama's nomic-embed-text model for embeddings
+      const response = await llavaService.generateEmbedding(text);
+      return response;
+    } catch (error) {
+      console.error('[MEMORY_SERVICE] Failed to generate embedding:', error.message);
+      return null;
+    }
+  }
+
+  calculateCosineSimilarity(vecA, vecB) {
+    if (!vecA || !vecB || vecA.length !== vecB.length) {
+      return 0.0;
+    }
+    
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    
+    for (let i = 0; i < vecA.length; i++) {
+      dotProduct += vecA[i] * vecB[i];
+      normA += vecA[i] * vecA[i];
+      normB += vecB[i] * vecB[i];
+    }
+    
+    const magnitude = Math.sqrt(normA) * Math.sqrt(normB);
+    return magnitude === 0 ? 0 : dotProduct / magnitude;
+  }
+
+  updateCanonicalSummary(streamId, newSummary, embedding) {
+    this.canonicalSummaries.set(streamId, newSummary);
+    this.embeddingCache.set(streamId, embedding);
+
+  }
+
+  filterPatternInducingContent(answer) {
+    // Remove or replace problematic patterns that could create self-reinforcing loops
+    const problematicPatterns = [
+      /NOTHING_NEW/gi,
+      /nothing new/gi,
+      /no changes?/gi,
+      /same (?:as )?(?:before|previous)/gi,
+      /unchanged/gi
+    ];
+    
+    let filtered = answer;
+    for (const pattern of problematicPatterns) {
+      if (pattern.test(filtered)) {
+
+        filtered = filtered.replace(pattern, 'scene continues as described');
+      }
+    }
+    
+    return filtered;
+  }
+
+  buildContextPrompt(streamId, userPrompt) {
+    const buffer = this.buffers.get(streamId);
+    const previousAnswer = this.getPreviousAnswer(streamId);
+    const canonicalSummary = this.canonicalSummaries.get(streamId);
+    const isFirstFrame = !buffer || buffer.entries.length === 0;
+
+
+
+    // Build context using the new template structure
+    const frameNumber = buffer ? buffer.entries.length + 1 : 1;
+    
+    let contextPrompt = `User prompt: ${userPrompt}
+
+**Temporal Context:**
+This is frame ${frameNumber} of a continuous video stream.
+
+**Relevant Scene History from Memory:**
+${canonicalSummary || 'No previous scene context available'}
+
+**Current Scene Description:**
+[Will be provided after current frame analysis]`;
+
+    if (!buffer || buffer.entries.length === 0) {
+
+    } else {
+
+    }
+
+    if (previousAnswer && !isFirstFrame) {
+
+      contextPrompt += `
+
+**Your previous response for context:**
+${previousAnswer}`;
+    }
+
+    contextPrompt += '\n\nCurrent frame: [Image]\nPlease answer accordingly.';
+
+    const metrics = this.metrics.get(streamId);
+    if (metrics) {
+      metrics.contextLinesSent = canonicalSummary ? 1 : 0;
+    }
+
+
+
+    return contextPrompt;
+  }
+
+  async checkNoveltyAndGetSceneDescription(streamId, frameBase64, intervalSeconds, userPrompt = null) {
+    try {
+      this.requestCount++;
+      const shouldLog = this.requestCount % this.logSampleRate === 0;
 
       const buffer = this.buffers.get(streamId);
-      const bufferLengthBefore = buffer.entries.length;
-      const isFirstFrame = bufferLengthBefore === 0;
-      const isFastInterval = intervalSeconds <= 10;
-
       const frameNumber = (this.frameCounters.get(streamId) || 0) + 1;
       this.frameCounters.set(streamId, frameNumber);
-
-              console.log('[MEMORY_SERVICE] Novelty check started');
-      console.log('[MEMORY_SERVICE] Stream: ' + streamId + ', Frame: ' + frameNumber + ', Buffer: ' + bufferLengthBefore + ' entries, First frame: ' + isFirstFrame);
-      console.log('[MEMORY_SERVICE] Fast interval (≤10s): ' + isFastInterval + ', Interval: ' + intervalSeconds + 's');
+      const isFirstFrame = frameNumber === 1;
 
       let deferredResult = null;
       if (this.deferredNoveltyResults.has(streamId)) {
-        deferredResult = this.deferredNoveltyResults.get(streamId);
-        console.log('[MEMORY_SERVICE] Found deferred novelty result from frame ' + deferredResult.frameNumber + ': "' + deferredResult.result + '"');
+        const candidateResult = this.deferredNoveltyResults.get(streamId);
+        const expectedFrameForResult = frameNumber - 1; // Deferred result should be from previous frame
+        if (candidateResult.frameNumber === expectedFrameForResult) {
+          deferredResult = candidateResult;
+
+        } else {
+
+        }
         this.deferredNoveltyResults.delete(streamId);
       }
 
       if (deferredResult) {
-        console.log('[MEMORY_SERVICE] Processing deferred novelty result: "' + deferredResult.result + '"');
+
 
         if (!this.isDuplicateText(streamId, deferredResult.result)) {
+          // Use embedding similarity to determine if scene has changed significantly
+          const canonicalDescription = deferredResult.result;
+          let shouldUpdateMemory = true;
+          
+          try {
+            // TEMPORARILY DISABLED: Check similarity with previous canonical summary
+            // const similarityCheck = await this.checkCanonicalSimilarity(streamId, canonicalDescription);
+            // shouldUpdateMemory = similarityCheck.shouldUpdate;
+            
+            // TEMPORARY: Always update memory for testing
+            shouldUpdateMemory = true;
+
+            
+            // Generate embedding and update canonical summary
+            const embedding = await this.generateEmbedding(canonicalDescription);
+            if (embedding) {
+              this.updateCanonicalSummary(streamId, canonicalDescription, embedding);
+            }
+          } catch (error) {
+            console.error('[MEMORY_SERVICE] Error in similarity check, proceeding with memory update:', error.message);
+          }
+
           const deferredEntry = {
             frame: buffer.entries.length + 1,
-            description: deferredResult.result.length > 200 ? deferredResult.result.substring(0, 200) + '...' : deferredResult.result,
+            canonicalSummary: canonicalDescription,
+            embedding: await this.generateEmbedding(canonicalDescription),
             timestamp: new Date().toISOString(),
-            noveltyFlag: deferredResult.isFirstFrame ? 'first_frame_deferred' : 'deferred_success',
             processingTime: deferredResult.processingTime
           };
 
@@ -225,39 +259,27 @@ class MemoryService {
           if (buffer.entries.length > maxSize) {
             const removedCount = buffer.entries.length - maxSize;
             buffer.entries = buffer.entries.slice(-maxSize);
-            console.log('[MEMORY_SERVICE] Trimmed buffer after deferred entry, removed ' + removedCount + ' old entries (max size: ' + maxSize + ')');
+
           }
 
           const metrics = this.metrics.get(streamId);
           if (metrics) metrics.memoryEntriesAdded++;
 
-          if (deferredResult.isFirstFrame) {
-            console.log('[MEMORY_SERVICE] FIRST FRAME BASELINE ESTABLISHED: "' + deferredResult.result + '"');
-          }
 
-          console.log('[MEMORY_SERVICE] Deferred novelty result stored successfully');
+
+
         } else {
-          console.log('[MEMORY_SERVICE] Deferred novelty result was duplicate, not storing');
-          const metrics = this.metrics.get(streamId);
-          if (metrics) metrics.memoryDuplicatesSkipped++;
+
         }
       }
 
-      if (isFirstFrame) {
-        console.log('[MEMORY_SERVICE] First frame detected, starting novelty check');
+            const isFastInterval = buffer && buffer.interval <= 10;
         if (isFastInterval) {
-          console.log('[MEMORY_SERVICE] FAST INTERVAL (≤10s) - novelty will run fully async, may defer to next frame');
-        }
-        this.runFirstFrameAsyncNoveltyCheck(streamId, frameBase64, frameNumber);
-      } else {
-        console.log('[MEMORY_SERVICE] Starting novelty check for subsequent frame');
-        if (isFastInterval) {
-          console.log('[MEMORY_SERVICE] FAST INTERVAL (≤10s) - novelty will run fully async, may defer to next frame');
-        }
-        this.runAsyncNoveltyCheck(streamId, frameBase64, frameNumber);
-      }
 
-              console.log('[MEMORY_SERVICE] Novelty check completed');
+      }
+      this.runCanonicalSceneAnalysis(streamId, frameBase64, frameNumber, userPrompt);
+
+
       return deferredResult;
 
     } catch (error) {
@@ -266,380 +288,184 @@ class MemoryService {
     }
   }
 
-  buildContextPrompt(streamId, userPrompt) {
-    const buffer = this.buffers.get(streamId);
-    const previousAnswer = this.getPreviousAnswer(streamId);
-    const isFirstFrame = !buffer || buffer.entries.length === 0;
-
-            console.log('[MEMORY_SERVICE] Building context prompt');
-    console.log('[MEMORY_SERVICE] Stream: ' + streamId + ', Buffer exists: ' + (!!buffer) + ', Buffer length: ' + (buffer ? buffer.entries.length : 0));
-
-    if (!buffer || buffer.entries.length === 0) {
-      console.log('[MEMORY_SERVICE] No buffer entries for stream ' + streamId + ', using original prompt');
-      return userPrompt;
-    }
-
-    const recentEntries = buffer.entries.slice(-this.config.contextMaxLines);
-
-    const contextEntries = recentEntries
-      .map((entry, index) => {
-        const frameOffset = recentEntries.length - index - 1;
-        const description = entry.description.length > 140
-          ? entry.description.substring(0, 137) + '...'
-          : entry.description;
-        return '- Frame T-' + frameOffset + ': ' + description;
-      })
-      .join('\n');
-
-    let contextPrompt = 'User prompt: ' + userPrompt + '\n\nContext (recent events):\n' + contextEntries;
-
-    if (previousAnswer && !isFirstFrame) {
-      console.log('[MEMORY_SERVICE] Adding previous answer section for continuity');
-      contextPrompt += '\n\nThis was what you generated last to the user:\n' + previousAnswer;
-    }
-
-    contextPrompt += '\n\nCurrent frame: [Image]\nPlease answer accordingly.';
-
-    const metrics = this.metrics.get(streamId);
-    if (metrics) {
-      metrics.contextLinesSent = recentEntries.length;
-    }
-
-    console.log('[MEMORY_SERVICE] Context prompt built with ' + recentEntries.length + ' lines (buffer size: ' + buffer.entries.length + '/' + (buffer.maxSize || 'unknown') + ')');
-            console.log('[MEMORY_SERVICE] Context prompt completed');
-
-    return contextPrompt;
-  }
-
-  async runFirstFrameAsyncNoveltyCheck(streamId, frameBase64, frameNumber) {
+  async runCanonicalSceneAnalysis(streamId, frameBase64, frameNumber, userPrompt = null) {
     try {
       if (this.pendingNoveltyChecks.has(streamId)) {
-        console.log('[MEMORY_SERVICE] First frame novelty check already pending for stream ' + streamId);
+
         return;
       }
 
       const buffer = this.buffers.get(streamId);
       const isFastInterval = buffer && buffer.interval <= 10;
 
-      const firstFramePrompt = `Analyze the first frame of a video stream with full visual comprehension.
+      // Build task-aware canonical prompt based on user's analysis goal
+      let taskFocusInstructions = '';
+      if (userPrompt && userPrompt.trim().length > 0) {
+        taskFocusInstructions = `
 
-**Task**: Provide a single, dense, and objective description of every visible element in the scene.
-
-**Instructions**:
-- Scan the entire frame methodically: foreground, background, center, periphery.
-- Identify and describe all entities: people, objects, surfaces, lighting, text (if legible), and environmental features.
-- Include precise details: positions (e.g., "left third", "centered", "near the door"), colors, sizes, orientations, states (e.g., "door open", "light on"), and any visible motion (e.g., "person walking right").
-- Note spatial relationships (e.g., "a red chair to the left of a wooden desk").
-- Mention textures, shadows, reflections, and lighting conditions (e.g., "bright overhead light", "shadow under table").
-- Do not infer intent or future actions—only report observable facts.
-
-**Output Format**:
-- One or two complete, grammatically correct sentences.
-- No bullet points, markdown, or extra text.
-- Be exhaustive but concise—omit nothing visible.
-
-Example: "A man in a blue shirt stands near the center of a kitchen, facing the sink; a white refrigerator is on the left wall, a stove on the right, and cabinet doors are open beneath the sink with a yellow sponge visible inside."`;
-
-      console.log('[MEMORY_SERVICE] First frame novelty prompt (NEW): Memory Initialization');
-      if (isFastInterval) {
-        console.log('[MEMORY_SERVICE] FAST INTERVAL FIRST FRAME - fully async, may defer result to next frame');
+**CRITICAL TASK FOCUS**: The user is specifically asking: "${userPrompt}"
+- Pay EXTRA attention to elements directly relevant to this request
+- If the user mentions specific objects, actions, or details, prioritize describing those elements
+- Include relevant details that would help track changes related to the user's specific analysis goal`;
       }
 
-      const noveltyPromise = this.performFirstFrameAsyncNoveltyCheck(streamId, frameBase64, firstFramePrompt, frameNumber);
+      const canonicalPrompt = `Comprehensively analyze this video frame. Generate a complete, objective description of all visible elements.
+
+**Task:** Provide a thorough scene summary covering every significant entity and environmental detail.${taskFocusInstructions}
+
+**CRITICAL OUTPUT REQUIREMENT:** 
+- Return ONLY a continuous paragraph of text
+- DO NOT use JSON format, bullet points, or structured sections
+- DO NOT use markdown, headers, or special formatting
+- Write as one flowing descriptive paragraph
+
+**Instructions:**
+- Scan the entire frame methodically: foreground, background, center, periphery
+- Describe all entities: people, objects, surfaces, lighting, text (if legible), environmental features
+- Include precise details: positions, colors, sizes, orientations, states, spatial relationships
+- Note textures, shadows, reflections, and lighting conditions
+- Focus exclusively on observable facts - no interpretations or narratives
+
+**Example of correct format:**
+"A bearded man in a blue shirt sits at a wooden desk with an open laptop computer positioned directly in front of him, while a red ceramic coffee mug sits to the right of the laptop and a stack of white papers is arranged to the left, with natural light streaming through a partially opened window behind him creating soft shadows across the desk surface."
+
+**Output Format:** Write your description as one continuous paragraph following the example above.`;
+
+
+      if (isFastInterval) {
+
+      }
+
+      const noveltyPromise = this.performCanonicalAnalysis(streamId, frameBase64, canonicalPrompt, frameNumber);
       this.pendingNoveltyChecks.set(streamId, noveltyPromise);
 
-      noveltyPromise.finally(() => {
-        this.pendingNoveltyChecks.delete(streamId);
-      });
+      if (!isFastInterval) {
+        await noveltyPromise;
+      }
 
-      console.log('[MEMORY_SERVICE] Started async first frame novelty check for frame', frameNumber);
     } catch (error) {
-      console.error('[MEMORY_SERVICE] Error starting async first frame novelty check:', error.message);
+      console.error('[MEMORY_SERVICE] Error in canonical scene analysis:', error.message);
     }
   }
 
-  async performFirstFrameAsyncNoveltyCheck(streamId, frameBase64, noveltyPrompt, frameNumber) {
+
+
+  async performCanonicalAnalysis(streamId, frameBase64, prompt, frameNumber) {
     const startTime = Date.now();
+    const requestId = streamId + '_canonical_analysis';
 
     try {
-              console.log('[MEMORY_SERVICE] First frame novelty processing started');
-
-      let noveltyResponse;
-
-      try {
-        noveltyResponse = await llavaService.analyzeFrame(frameBase64, noveltyPrompt, 1, streamId + '_novelty_first_async');
-        const processingTime = Date.now() - startTime;
-        console.log('[MEMORY_SERVICE] First frame async novelty completed');
-      } catch (error) {
-        const processingTime = Date.now() - startTime;
-        console.error('[MEMORY_SERVICE] FIRST FRAME ASYNC NOVELTY ERROR after ' + processingTime + 'ms: ' + error.message);
-        return;
-      }
-
+      const response = await llavaService.analyzeFrame(frameBase64, prompt, 1, requestId);
       const processingTime = Date.now() - startTime;
 
-      if (!noveltyResponse || !noveltyResponse.answer) {
-        console.log('[MEMORY_SERVICE] First frame async novelty returned empty response');
-        return;
-      }
+      if (response && response.answer) {
 
-      const response = noveltyResponse.answer.trim();
-      console.log('[MEMORY_SERVICE] FIRST FRAME NOVELTY OUTPUT: "' + response + '"');
-
-      if (response.length < 10) {
-        console.log('[MEMORY_SERVICE] First frame novelty response too short - not deferring');
-        return;
-      }
 
       this.deferredNoveltyResults.set(streamId, {
-        result: response,
+          result: response.answer,
         timestamp: new Date().toISOString(),
         frameNumber: frameNumber,
-        processingTime: processingTime,
-        isFirstFrame: true
-      });
+          processingTime: processingTime
+        });
 
-      const metrics = this.metrics.get(streamId);
-      if (metrics) metrics.noveltyCallsPerMin++;
 
-      console.log('[MEMORY_SERVICE] FIRST FRAME ASYNC NOVELTY RESULT DEFERRED FOR NEXT FRAME');
-    } catch (error) {
-      const processingTime = Date.now() - startTime;
-      console.error('[MEMORY_SERVICE] Critical error in first frame async novelty processing after ' + processingTime + 'ms:', error.message);
-    }
-  }
-
-  async runAsyncNoveltyCheck(streamId, frameBase64, frameNumber) {
-    try {
-      if (this.pendingNoveltyChecks.has(streamId)) {
-        console.log('[MEMORY_SERVICE] Novelty check already pending for stream ' + streamId + ', skipping frame ' + frameNumber);
-        return;
       }
 
-      const buffer = this.buffers.get(streamId);
-      if (!buffer || buffer.entries.length === 0) {
-        console.log('[MEMORY_SERVICE] No buffer entries for subsequent frame novelty check');
-        return;
-      }
-
-      const isFastInterval = buffer.interval <= 10;
-
-      // Get the last memory output for comparison
-      const lastMemoryOutput = buffer.entries[buffer.entries.length - 1].description;
-
-      const subsequentFramePrompt = `Analyze the current frame of a video stream for visual changes compared to the previous scene.
-
-**Previous Scene Description**:
-"${lastMemoryOutput}"
-
-**Task**: Detect and describe **all** visual differences from the previous frame. If no changes exist, output exactly: NOTHING_NEW
-
-**Instructions**:
-- Compare the entire visual field: objects, people, lighting, positions, states, activities, and background.
-- Look for: movement, additions, removals, rotations, state changes (e.g., "light turned on"), or new motion (e.g., "person now sitting").
-- Even minor changes (e.g., a shifted book, dimmed light) must be reported.
-- Be specific about what changed and where (e.g., "the laptop lid is now open", "a coffee mug appears on the desk").
-- Ignore differences in camera noise or compression artifacts unless they represent real scene changes.
-
-**Output Rules**:
-- If any change: One or two clear, descriptive sentences listing all differences.
-- If no change: Output **exactly** "NOTHING_NEW" (uppercase, no punctuation).
-- Do not re-describe the entire scene—only report **deltas**.
-
-Example 1: "The man has moved from the center to the left side of the room and is now sitting on a gray chair; the door in the background is now closed."
-Example 2: NOTHING_NEW`;
-
-      console.log('[MEMORY_SERVICE] Subsequent frame novelty prompt (NEW): Memory Update with last output comparison');
-      if (isFastInterval) {
-        console.log('[MEMORY_SERVICE] FAST INTERVAL SUBSEQUENT FRAME - fully async, may defer result to next frame');
-      }
-
-      const noveltyPromise = this.performAsyncNoveltyCheck(streamId, frameBase64, subsequentFramePrompt, frameNumber);
-      this.pendingNoveltyChecks.set(streamId, noveltyPromise);
-
-      noveltyPromise.finally(() => {
         this.pendingNoveltyChecks.delete(streamId);
-      });
 
-      console.log('[MEMORY_SERVICE] Started async novelty check for frame', frameNumber);
     } catch (error) {
-      console.error('[MEMORY_SERVICE] Error starting async novelty check:', error.message);
+      console.error('[MEMORY_SERVICE] Error in canonical analysis:', error.message);
+      this.pendingNoveltyChecks.delete(streamId);
     }
   }
 
-  async performAsyncNoveltyCheck(streamId, frameBase64, noveltyPrompt, frameNumber) {
-    const startTime = Date.now();
 
-    try {
-              console.log('[MEMORY_SERVICE] Novelty processing started');
 
-      let noveltyResponse;
+  // Keep existing helper methods that are still needed
+  isDuplicateText(streamId, text) {
+    const lastHash = this.lastStoredFrameHash.get(streamId);
+    const currentHash = this.hashText(text);
+    
+    if (lastHash === currentHash) {
+      return true;
+    }
+    
+    this.lastStoredFrameHash.set(streamId, currentHash);
+    return false;
+  }
 
-      try {
-        noveltyResponse = await llavaService.analyzeFrame(frameBase64, noveltyPrompt, 1, streamId + '_novelty_async');
-        const processingTime = Date.now() - startTime;
-        console.log('[MEMORY_SERVICE] Async novelty completed');
-      } catch (error) {
-        const processingTime = Date.now() - startTime;
-        console.error('[MEMORY_SERVICE] ASYNC NOVELTY ERROR after ' + processingTime + 'ms: ' + error.message);
-        return;
-      }
+  hashText(text) {
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+      const char = text.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return hash;
+  }
 
-      const processingTime = Date.now() - startTime;
+  getPreviousAnswer(streamId) {
+    return this.previousAnswers.get(streamId) || null;
+  }
 
-      if (!noveltyResponse || !noveltyResponse.answer) {
-        console.log('[MEMORY_SERVICE] Async novelty returned empty response');
-        return;
-      }
-
-      const response = noveltyResponse.answer.trim();
-      console.log('[MEMORY_SERVICE] NOVELTY OUTPUT: "' + response + '"');
-
-      if (response.toUpperCase() === 'NOTHING_NEW') {
-        console.log('[MEMORY_SERVICE] Async novelty result: NOTHING_NEW - not deferring');
-        return;
-      }
-
-      if (this.isDuplicateText(streamId, response)) {
-        console.log('[MEMORY_SERVICE] Async novelty result is duplicate - not deferring');
-        const metrics = this.metrics.get(streamId);
-        if (metrics) metrics.memoryDuplicatesSkipped++;
-        return;
-      }
-
-      this.deferredNoveltyResults.set(streamId, {
-        result: response,
-        timestamp: new Date().toISOString(),
-        frameNumber: frameNumber,
-        processingTime: processingTime,
-        isFirstFrame: false
+  initializeBuffer(streamId, intervalSeconds) {
+    if (!this.buffers.has(streamId)) {
+      const bufferSize = this.getBufferSize(intervalSeconds);
+      this.buffers.set(streamId, {
+        entries: [],
+        interval: intervalSeconds,
+        maxSize: bufferSize,
+        lastActivity: new Date()
       });
 
-      const metrics = this.metrics.get(streamId);
-      if (metrics) metrics.noveltyCallsPerMin++;
+    }
+    return this.buffers.get(streamId);
+  }
 
-      console.log('[MEMORY_SERVICE] ASYNC NOVELTY RESULT DEFERRED FOR NEXT FRAME');
-    } catch (error) {
-      const processingTime = Date.now() - startTime;
-      console.error('[MEMORY_SERVICE] Critical error in async novelty processing after ' + processingTime + 'ms:', error.message);
+  getBuffer(streamId) {
+    const buffer = this.buffers.get(streamId);
+    return buffer ? buffer.entries : [];
+  }
+
+  getBufferSize(intervalSeconds) {
+    if (intervalSeconds >= 120) return 80;
+    if (intervalSeconds >= 60) return 50;
+    if (intervalSeconds < 10) return Math.max(15, Math.min(20, intervalSeconds * 2));
+    return 20 + Math.floor((intervalSeconds - 10) * (30 / 50));
+  }
+
+  cleanupIdleBuffers() {
+    const cutoffTime = new Date(Date.now() - 5 * 60 * 1000); // 5 minutes ago
+    let cleaned = 0;
+
+    for (const [streamId, buffer] of this.buffers.entries()) {
+      if (buffer.lastActivity < cutoffTime) {
+        this.buffers.delete(streamId);
+        this.previousAnswers.delete(streamId);
+        this.canonicalSummaries.delete(streamId);
+        this.embeddingCache.delete(streamId);
+        this.frameCounters.delete(streamId);
+        this.lastStoredFrameHash.delete(streamId);
+        cleaned++;
+      }
+    }
+
+    if (cleaned > 0) {
+
     }
   }
 
   getMetrics(streamId) {
-    return this.metrics.get(streamId) || {};
+    return this.metrics.get(streamId) || null;
   }
 
-  resetMetrics(streamId) {
-    const metrics = this.metrics.get(streamId);
-    if (metrics) {
-      Object.keys(metrics).forEach(key => {
-        if (key !== 'lastMetricsReset') {
-          metrics[key] = 0;
-        }
-      });
-      metrics.lastMetricsReset = Date.now();
-    }
-  }
+  clearBuffer(streamId) {
+    if (this.buffers.has(streamId)) {
+      this.buffers.get(streamId).entries = [];
+      this.canonicalSummaries.delete(streamId);
+      this.embeddingCache.delete(streamId);
+      this.frameCounters.delete(streamId);
 
-  cleanupIdleBuffers() {
-    const now = new Date();
-    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
-
-    for (const [streamId, buffer] of this.buffers.entries()) {
-      if (buffer.lastAccess < fiveMinutesAgo) {
-        this.buffers.delete(streamId);
-        this.metrics.delete(streamId);
-        this.frameCounters.delete(streamId);
-        this.previousAnswers.delete(streamId);
-        this.lastStoredFrameHash.delete(streamId);
-        this.noveltyTimeoutCounts.delete(streamId);
-        this.circuitBreakers.delete(streamId);
-        this.pendingNoveltyChecks.delete(streamId);
-        this.deferredNoveltyResults.delete(streamId);
-        console.log('[MEMORY_SERVICE] Cleaned up idle buffer for stream ' + streamId);
-      }
-    }
-
-    console.log('[MEMORY_SERVICE] Buffer cleanup completed, active buffers: ' + this.buffers.size);
-  }
-
-  getDebugInfo(streamId) {
-    const buffer = this.buffers.get(streamId);
-    const previousAnswer = this.getPreviousAnswer(streamId);
-
-    if (!buffer) {
-      return { error: 'Buffer not found', streamId };
-    }
-
-    return {
-      streamId,
-      entryCount: buffer.entries.length,
-      maxSize: buffer.maxSize || this.getBufferSize(buffer.interval),
-      lastAccess: buffer.lastAccess,
-      interval: buffer.interval,
-      isFastInterval: buffer.interval <= 10,
-      metrics: this.getMetrics(streamId),
-      hasPendingNovelty: this.pendingNoveltyChecks.has(streamId),
-      hasDeferredResult: this.deferredNoveltyResults.has(streamId),
-      frameCounter: this.frameCounters.get(streamId) || 0,
-      previousAnswer: previousAnswer ? previousAnswer.substring(0, 200) + (previousAnswer.length > 200 ? '...' : '') : null,
-      entries: buffer.entries.map(entry => ({
-        frame: entry.frame,
-        description: entry.description.substring(0, 100) + (entry.description.length > 100 ? '...' : ''),
-        timestamp: entry.timestamp,
-        noveltyFlag: entry.noveltyFlag,
-        processingTime: entry.processingTime || 'unknown'
-      })),
-      lastNoveltyOutput: buffer.entries.length > 0 ? buffer.entries[buffer.entries.length - 1].description : null
-    };
-  }
-
-  setLogSampleRate(rate) {
-    try {
-      const newRate = parseInt(rate);
-      if (newRate < 1) {
-        console.warn('[MEMORY_SERVICE] Invalid log sample rate, must be >= 1');
-        return;
-      }
-
-      const oldRate = this.logSampleRate;
-      this.logSampleRate = newRate;
-      this.requestCount = 0;
-
-      console.log('[MEMORY_SERVICE] Log sample rate changed from ' + oldRate + ' to ' + newRate);
-    } catch (error) {
-      console.warn('[MEMORY_SERVICE] Failed to set log sample rate:', error.message);
-    }
-  }
-
-  getLogConfig() {
-    return {
-      sampleRate: this.logSampleRate,
-      requestCount: this.requestCount,
-      nextLogAt: this.requestCount + (this.logSampleRate - (this.requestCount % this.logSampleRate))
-    };
-  }
-
-  destroy() {
-    try {
-      if (this.cleanupInterval) {
-        clearInterval(this.cleanupInterval);
-        this.cleanupInterval = null;
-      }
-
-      this.buffers.clear();
-      this.metrics.clear();
-      this.frameCounters.clear();
-      this.previousAnswers.clear();
-      this.lastStoredFrameHash.clear();
-      this.noveltyTimeoutCounts.clear();
-      this.circuitBreakers.clear();
-      this.pendingNoveltyChecks.clear();
-      this.deferredNoveltyResults.clear();
-
-      console.log('[MEMORY_SERVICE] Service destroyed and resources cleaned up');
-    } catch (error) {
-      console.error('[MEMORY_SERVICE] Error during service destruction:', error.message);
     }
   }
 }

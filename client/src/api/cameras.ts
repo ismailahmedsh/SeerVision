@@ -11,20 +11,19 @@ const CACHE_DURATION = 2000 // 2 seconds cache
 export const getCameras = async () => {
   // Add stack trace to identify where API call is coming from
   const caller = new Error().stack?.split('\n')[2]?.trim() || 'unknown'
-  console.log('[CAMERAS_API] Getting cameras from:', caller)
+
 
   // Check cache first
   const now = Date.now()
   if (cameraCache && (now - cameraCache.timestamp) < CACHE_DURATION) {
-    console.log('[CAMERAS_API] Returning cached data')
+
     return cameraCache.data
   }
 
   try {
-    console.log('[CAMERAS_API] Making fresh API call')
+
     const response = await api.get('/api/cameras');
-    console.log('[CAMERAS_API] API response received');
-    console.log('[CAMERAS_API] Cameras retrieved successfully')
+
     
     // Cache the response
     cameraCache = {
@@ -43,7 +42,7 @@ export const getCameras = async () => {
 
 // Function to invalidate cache when cameras are updated
 export const invalidateCameraCache = () => {
-  console.log('[CAMERAS_API] Invalidating camera cache')
+
   cameraCache = null
 }
 
@@ -53,9 +52,9 @@ export const invalidateCameraCache = () => {
 // Response: { success: boolean, camera: object }
 export const addCamera = async (data: { name: string; type: string; streamUrl: string }) => {
   try {
-    console.log('[CAMERAS_API] Adding camera:', data)
+
     const response = await api.post('/api/cameras', data);
-    console.log('[CAMERAS_API] Camera added successfully');
+
     invalidateCameraCache(); // Invalidate cache when camera is added
     return response.data;
   } catch (error) {
@@ -70,9 +69,9 @@ export const addCamera = async (data: { name: string; type: string; streamUrl: s
 // Response: { success: boolean, message: string }
 export const testCameraConnection = async (data: { streamUrl: string; type: string }) => {
   try {
-    console.log('[CAMERAS_API] Testing camera connection:', data)
+
     const response = await api.post('/api/cameras/test', data);
-    console.log('[CAMERAS_API] Connection test completed');
+
     return response.data;
   } catch (error) {
     console.error('[CAMERAS_API] Test connection error:', error)
@@ -86,9 +85,9 @@ export const testCameraConnection = async (data: { streamUrl: string; type: stri
 // Response: { success: boolean, message: string }
 export const deleteCamera = async (id: string) => {
   try {
-    console.log('[CAMERAS_API] Deleting camera with ID:', id)
+
     const response = await api.delete(`/api/cameras/${id}`);
-    console.log('[CAMERAS_API] Camera deleted successfully');
+
     invalidateCameraCache(); // Invalidate cache when camera is deleted
     return response.data;
   } catch (error) {
@@ -103,9 +102,9 @@ export const deleteCamera = async (id: string) => {
 // Response: { success: boolean, camera: object }
 export const updateCamera = async (id: string, data: { name?: string; type?: string; streamUrl?: string }) => {
   try {
-    console.log('[CAMERAS_API] Updating camera:', id, data)
+
     const response = await api.put(`/api/cameras/${id}`, data);
-    console.log('[CAMERAS_API] Update camera response:', response.data)
+
     return response.data;
   } catch (error) {
     console.error('[CAMERAS_API] Update camera error:', error)
@@ -119,9 +118,9 @@ export const updateCamera = async (id: string, data: { name?: string; type?: str
 // Response: { settings: object }
 export const getCameraSettings = async (id: string) => {
   try {
-    console.log('[CAMERAS_API] Getting camera settings for ID:', id)
+
     const response = await api.get(`/api/cameras/${id}/settings`);
-    console.log('[CAMERAS_API] Get settings response:', response.data)
+
     return response.data;
   } catch (error) {
     console.error('[CAMERAS_API] Get settings error:', error)
@@ -135,9 +134,9 @@ export const getCameraSettings = async (id: string) => {
 // Response: { success: boolean }
 export const updateCameraSettings = async (id: string, settings: any) => {
   try {
-    console.log('[CAMERAS_API] Updating camera settings for ID:', id, settings)
+
     const response = await api.put(`/api/cameras/${id}/settings`, { settings });
-    console.log('[CAMERAS_API] Update settings response:', response.data)
+
     invalidateCameraCache(); // Invalidate cache when camera settings are updated
     return response.data;
   } catch (error) {

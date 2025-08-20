@@ -1,4 +1,4 @@
-import { Bell, Menu, User, LogOut } from "lucide-react"
+import { Menu, User, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
-import { NotificationsDropdown } from "./NotificationsDropdown"
+
 import { useAuth } from "@/contexts/AuthContext"
 
 interface DashboardHeaderProps {
@@ -50,7 +50,6 @@ export function DashboardHeader({ onMenuClick, showMenuButton = false, sidebarOp
 
         <div className="flex items-center space-x-2 lg:space-x-3">
           <ThemeToggle />
-          <NotificationsDropdown />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

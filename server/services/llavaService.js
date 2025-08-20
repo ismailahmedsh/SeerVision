@@ -531,6 +531,33 @@ class LLaVAService {
       };
     }
   }
+
+  async generateEmbedding(text) {
+    try {
+      console.log('[LLAVA_SERVICE] Generating embedding for text similarity check');
+      
+      const response = await axios.post(`${this.ollamaUrl}/api/embeddings`, {
+        model: 'nomic-embed-text',
+        prompt: text
+      }, {
+        timeout: 30000, // 30 second timeout for embeddings
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.data && response.data.embedding) {
+        console.log(`[LLAVA_SERVICE] Generated embedding vector of length ${response.data.embedding.length}`);
+        return response.data.embedding;
+      } else {
+        console.error('[LLAVA_SERVICE] Invalid embedding response structure');
+        return null;
+      }
+    } catch (error) {
+      console.error('[LLAVA_SERVICE] Failed to generate embedding:', error.message);
+      return null;
+    }
+  }
 }
 
 module.exports = new LLaVAService();

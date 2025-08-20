@@ -29,7 +29,7 @@ router.post('/stream', async (req, res) => {
       });
     }
 
-    console.log('Creating analysis stream', { cameraId, analysisInterval, jsonOption, memory });
+
 
     const camera = await Camera.findById(cameraId, req.user.id);
     if (!camera) {
@@ -82,7 +82,7 @@ router.post('/stream', async (req, res) => {
       memory: useMemory
     });
 
-    console.log('Analysis stream created successfully', { streamId, cameraName: camera.name, jsonOption, memory: useMemory });
+
 
     res.status(201).json({
       success: true,
@@ -117,7 +117,7 @@ router.post('/frame', async (req, res) => {
       });
     }
 
-    console.log('Processing frame analysis', { streamId, frameSize: frameBase64.length, jsonOption, memory });
+
 
     const analysisSession = await VideoAnalysis.findByStreamId(streamId);
     if (!analysisSession || analysisSession.userId !== req.user.id) {
@@ -139,7 +139,7 @@ router.post('/frame', async (req, res) => {
       // Update the analysis session with the new interval for future use
       try {
         await VideoAnalysis.updateInterval(streamId, analysisInterval);
-        console.log('[VIDEO_ANALYSIS] Analysis session interval updated to:', analysisInterval);
+
       } catch (updateError) {
         console.error('[VIDEO_ANALYSIS] Failed to update session interval:', updateError.message);
         // Continue with the new interval even if update fails
@@ -181,7 +181,7 @@ router.post('/frame', async (req, res) => {
       if (bufferAfter.length > 0) {
         const recentEntries = bufferAfter.slice(-3).map(entry => ({
           frame: entry.frame,
-          description: entry.description.substring(0, 50) + (entry.description.length > 50 ? '...' : ''),
+          description: (entry.canonicalSummary || entry.description || 'No description').substring(0, 50) + ((entry.canonicalSummary || entry.description || '').length > 50 ? '...' : ''),
           timestamp: entry.timestamp
         }));
         console.log(`[MEMORY_LOGGING] Recent buffer entries: ${JSON.stringify(recentEntries, null, 2)}`);
@@ -255,7 +255,7 @@ ONLY return your response as a raw JSON object enclosed in curly braces { } with
 
       // Update memory buffer with scene description (non-blocking)
       if (useMemory) {
-        memoryService.checkNoveltyAndGetSceneDescription(streamId, frameBase64, analysisInterval)
+        memoryService.checkNoveltyAndGetSceneDescription(streamId, frameBase64, analysisInterval, prompt)
           .catch(error => {
             console.error(`[VIDEO_ANALYSIS] Memory buffer update failed for stream ${streamId}:`, error.message);
             // Continue without disrupting main analysis
@@ -316,7 +316,7 @@ router.post('/query', async (req, res) => {
       });
     }
 
-    console.log('Processing analysis query', { streamId, query, limit });
+
 
     const analysisSession = await VideoAnalysis.findByStreamId(streamId);
     if (!analysisSession) {
@@ -335,7 +335,7 @@ router.post('/query', async (req, res) => {
 
     const results = await VideoAnalysis.getResults(streamId, limit);
 
-    console.log('Query completed successfully', { streamId, resultCount: results.length });
+
 
     const responseData = {
       success: true,
@@ -383,7 +383,7 @@ router.delete('/stream/:streamId', async (req, res) => {
 
     await VideoAnalysis.updateStatus(streamId, 'stopped');
 
-    console.log('Analysis stream stopped successfully', { streamId });
+
 
     res.json({
       success: true,
@@ -403,7 +403,7 @@ router.get('/suggestions/:cameraId', async (req, res) => {
   try {
     const { cameraId } = req.params;
 
-    console.log('Processing suggestions request (GET)', { cameraId });
+
 
     const camera = await Camera.findById(cameraId, req.user.id);
     if (!camera) {
@@ -501,7 +501,7 @@ router.post('/suggestions/:cameraId', async (req, res) => {
     const { cameraId } = req.params;
     const { image_b64 } = req.body;
 
-    console.log('Processing suggestions request (POST)', { cameraId, frameSize: image_b64?.length || 0 });
+
 
     const camera = await Camera.findById(cameraId, req.user.id);
     if (!camera) {
