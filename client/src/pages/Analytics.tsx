@@ -47,7 +47,7 @@ export function Analytics() {
       setLoading(true)
       setError(null)
       
-      // Load all analytics data in parallel
+
       const [analyticsResponse, detectionsResponse, confidenceResponse] = await Promise.all([
         getAnalyticsData({ timeRange }),
         getDetectionsTimeseries({ timeRange }),
@@ -58,7 +58,6 @@ export function Analytics() {
       setDetectionsTimeseries(detectionsResponse.data)
       setConfidenceTimeseries(confidenceResponse.data)
     } catch (error: any) {
-      console.error("Error loading analytics:", error)
       const errorMessage = error.message || "Failed to load analytics data"
       setError(errorMessage)
       toast({
@@ -76,22 +75,21 @@ export function Analytics() {
     
     let queries = [...data.topQueries]
     
-    // Apply search filter
+
     if (querySearchTerm.trim()) {
       queries = queries.filter(query => 
         query.query.toLowerCase().includes(querySearchTerm.toLowerCase())
       )
     }
     
-    // Apply sorting
+
     switch (querySortBy) {
       case "recent":
-        // Assuming queries have a timestamp, for now we'll keep original order
-        return queries
+        return queries.sort((a, b) => new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime())
       case "topCount":
         return queries.sort((a, b) => b.count - a.count)
       case "topDetections":
-        return queries.sort((a, b) => b.confidence - a.confidence)
+        return queries.sort((a, b) => b.count - a.count)
       default:
         return queries
     }
@@ -190,7 +188,7 @@ export function Analytics() {
         </Select>
       </div>
 
-      {/* Key Metrics */}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm border-slate-200 dark:border-slate-700">
           <CardHeader className="pb-2">
@@ -257,7 +255,7 @@ export function Analytics() {
         </Card>
       </div>
 
-      {/* Prompts */}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm border-slate-200 dark:border-slate-700">
           <CardHeader className="flex flex-row items-center justify-between">
@@ -336,7 +334,7 @@ export function Analytics() {
         </Card>
       </div>
 
-      {/* Timeseries Charts */}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm border-slate-200 dark:border-slate-700">
           <CardHeader>

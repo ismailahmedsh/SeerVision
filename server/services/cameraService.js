@@ -7,7 +7,7 @@ class CameraService {
       console.log('[CAMERA_SERVICE] Creating camera for user:', userId);
       
       // Validate required fields
-      const { name, type, streamUrl } = cameraData;
+      const { name, type, streamUrl, defaultInterval } = cameraData;
       if (!name || !type || !streamUrl) {
         throw new Error('Name, type, and stream URL are required');
       }
@@ -22,10 +22,11 @@ class CameraService {
         name: name.trim(),
         type,
         streamUrl: streamUrl.trim(),
-        userId
+        userId,
+        analysisInterval: defaultInterval || 30
       });
 
-      console.log('[CAMERA_SERVICE] Camera created successfully:', camera._id);
+      console.log('[CAMERA_SERVICE] Camera created successfully:', camera._id, 'with interval:', defaultInterval || 30);
       return camera;
     } catch (error) {
       console.error('[CAMERA_SERVICE] Error creating camera:', error.message);
@@ -252,7 +253,7 @@ class CameraService {
         recordingEnabled: Boolean(camera.recordingEnabled),
         motionDetection: Boolean(camera.motionDetection),
         alertsEnabled: Boolean(camera.alertsEnabled),
-        analysisInterval: camera.analysisInterval || 2,
+        analysisInterval: camera.analysisInterval || 30,
         memory: Boolean(camera.memory || false), // Safe fallback for missing memory field
         qualitySettings: {
           resolution: camera.resolution || '1920x1080',

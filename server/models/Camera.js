@@ -9,14 +9,14 @@ class Camera {
           throw new Error('Database connection is not available');
         }
 
-        const { name, type, streamUrl, userId } = cameraData;
+        const { name, type, streamUrl, userId, analysisInterval } = cameraData;
 
         const query = `
-          INSERT INTO cameras (name, type, streamUrl, userId, status, lastSeen, memory, createdAt, updatedAt)
-          VALUES (?, ?, ?, ?, 'connected', CURRENT_TIMESTAMP, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          INSERT INTO cameras (name, type, streamUrl, userId, analysisInterval, status, lastSeen, memory, createdAt, updatedAt)
+          VALUES (?, ?, ?, ?, ?, 'connected', CURRENT_TIMESTAMP, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         `;
 
-        db.run(query, [name, type, streamUrl, userId], function(err) {
+        db.run(query, [name, type, streamUrl, userId, analysisInterval || 30], function(err) {
           if (err) {
             console.error('Error creating camera:', err.message);
             reject(err);

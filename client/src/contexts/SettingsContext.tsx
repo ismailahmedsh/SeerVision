@@ -32,9 +32,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       
       if (response && typeof response === 'object' && 'settings' in response && response.settings) {
         const settingsData = response.settings as SettingsData
-        let adjustedInterval = settingsData.analysis?.defaultInterval || 6
-        if (adjustedInterval < 6) {
-          adjustedInterval = 6
+        let adjustedInterval = settingsData.analysis?.defaultInterval || 10
+        if (adjustedInterval < 10) {
+          adjustedInterval = 10
         }
         if (adjustedInterval > 120) {
           adjustedInterval = 120
@@ -42,38 +42,31 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         setSettings(settingsData)
 
       } else if (response && typeof response === 'object' && 'success' in response && response.success && 'settings' in response && response.settings) {
-        // Handle response with success property
         const settingsData = response.settings as SettingsData
-        let adjustedInterval = settingsData.analysis?.defaultInterval || 6
-        if (adjustedInterval < 6) {
-          adjustedInterval = 6
+        let adjustedInterval = settingsData.analysis?.defaultInterval || 10
+        if (adjustedInterval < 10) {
+          adjustedInterval = 10
         }
         if (adjustedInterval > 120) {
           adjustedInterval = 120
         }
         setSettings(settingsData)
-
-      } else {
-        console.error('[SETTINGS] Invalid response format:', response)
       }
     } catch (error) {
-      console.error('[SETTINGS] Failed to load settings:', error)
+      // Silent error handling
     } finally {
       setLoading(false)
-
     }
   }
 
   useEffect(() => {
     loadSettings()
     
-    // Fallback timeout to prevent infinite loading
     const timeout = setTimeout(() => {
       if (loading) {
-
         setLoading(false)
       }
-    }, 5000) // 5 second timeout
+    }, 5000)
     
     return () => clearTimeout(timeout)
   }, [])
@@ -81,9 +74,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const updateSetting = (section: keyof SettingsData, key: string, value: any) => {
     if (!settings) return
     
-    // Enforce analysis interval range (6-120 seconds)
     if (section === 'analysis' && key === 'defaultInterval') {
-      if (value < 6) value = 6
+      if (value < 10) value = 10
       if (value > 120) value = 120
     }
     
@@ -101,7 +93,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     try {
       await updateSettings(settings)
     } catch (error) {
-      console.error("Error saving settings:", error)
       throw error
     }
   }
@@ -112,7 +103,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const updateAnalysisInterval = async (value: number) => {
     try {
-      const enforcedValue = Math.max(6, Math.min(120, value))
+      const enforcedValue = Math.max(10, Math.min(120, value))
       const response = await updateSettings({
         analysis: {
           ...settings?.analysis,
@@ -133,7 +124,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         })
       }
     } catch (error) {
-      console.error('Failed to update analysis interval:', error)
+      // Silent error handling
     }
   }
 

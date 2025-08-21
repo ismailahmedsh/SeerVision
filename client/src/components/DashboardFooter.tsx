@@ -21,15 +21,6 @@ export function DashboardFooter() {
             <span className="sr-only">GitHub</span>
           </a>
           <a
-            href="https://twitter.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Twitter className="h-3 w-3 lg:h-4 lg:w-4" />
-            <span className="sr-only">Twitter</span>
-          </a>
-          <a
             href="https://linkedin.com"
             target="_blank"
             rel="noopener noreferrer"

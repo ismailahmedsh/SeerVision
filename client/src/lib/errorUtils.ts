@@ -1,6 +1,4 @@
-/**
- * Error handling utilities for better user experience
- */
+
 
 export interface ErrorInfo {
   status?: number;
@@ -11,11 +9,9 @@ export interface ErrorInfo {
   actionRequired?: string;
 }
 
-/**
- * Classify errors and provide user-friendly messages
- */
+
 export function classifyError(error: any): ErrorInfo {
-  // Network errors
+
   if (!error.response) {
     return {
       message: error.message || 'Network error',
@@ -28,7 +24,7 @@ export function classifyError(error: any): ErrorInfo {
   const status = error.response.status;
   const data = error.response.data;
 
-  // 4xx Client errors - NOT retryable
+
   switch (status) {
     case 400:
       return {
@@ -94,7 +90,7 @@ export function classifyError(error: any): ErrorInfo {
       };
   }
 
-  // 5xx Server errors - retryable
+
   if (status >= 500) {
     return {
       status,
@@ -105,7 +101,7 @@ export function classifyError(error: any): ErrorInfo {
     };
   }
 
-  // Default case
+
   return {
     status,
     message: data?.error || error.message || 'Unknown error',
@@ -115,9 +111,7 @@ export function classifyError(error: any): ErrorInfo {
   };
 }
 
-/**
- * Get appropriate toast message for error
- */
+
 export function getToastMessage(error: any): { message: string; type: 'error' | 'warning' | 'info' } {
   const errorInfo = classifyError(error);
   
@@ -134,23 +128,17 @@ export function getToastMessage(error: any): { message: string; type: 'error' | 
   };
 }
 
-/**
- * Check if error should trigger a retry
- */
+
 export function shouldRetry(error: any): boolean {
   return classifyError(error).isRetryable;
 }
 
-/**
- * Get user action required for error
- */
+
 export function getActionRequired(error: any): string | undefined {
   return classifyError(error).actionRequired;
 }
 
-/**
- * Format error for logging
- */
+
 export function formatErrorForLog(error: any, context?: string): string {
   const errorInfo = classifyError(error);
   const contextStr = context ? `[${context}] ` : '';

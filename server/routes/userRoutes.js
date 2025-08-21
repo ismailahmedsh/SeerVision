@@ -1,6 +1,6 @@
 const express = require('express');
 const UserService = require('../services/userService.js');
-const { requireUser } = require('./middleware/auth.js');
+const { authenticateToken } = require('./middleware/auth.js');
 
 const router = express.Router();
 
@@ -17,13 +17,13 @@ router.get('/', async (req, res) => {
   console.log('[USER ROUTES] GET / - Getting all users');
 
   try {
-    console.log('[USER ROUTES] Calling UserService.list()');
-    const users = await UserService.list();
+    console.log('[USER ROUTES] Calling UserService.getAllUsers()');
+    const users = await UserService.getAllUsers();
     console.log('[USER ROUTES] Retrieved', users.length, 'users');
 
     const response = {
       success: true,
-      data: users.map(user => user.toObject())
+      data: users
     };
     console.log('[USER ROUTES] Sending response with', users.length, 'users');
 
@@ -61,13 +61,13 @@ router.post('/', async (req, res) => {
       role: role || 'user'
     };
 
-    console.log('[USER ROUTES] Calling UserService.create with:', { ...userData, password: '[HIDDEN]' });
-    const user = await UserService.create(userData);
+    console.log('[USER ROUTES] Calling UserService.createUser with:', { ...userData, password: '[HIDDEN]' });
+    const user = await UserService.createUser(userData);
     console.log('[USER ROUTES] User created successfully:', user.email);
 
     const response = {
       success: true,
-      data: user.toObject()
+      data: user
     };
     console.log('[USER ROUTES] Sending response:', JSON.stringify(response, null, 2));
 
@@ -77,6 +77,45 @@ router.post('/', async (req, res) => {
     console.error('[USER ROUTES] Error stack:', error.stack);
     res.status(400).json({
       message: error.message
+    });
+  }
+});
+
+// Update user profile (authenticated)
+router.put('/profile', authenticateToken, async (req, res) => {
+  console.log('[USER ROUTES] PUT /profile - Updating user profile');
+  console.log('[USER ROUTES] User ID from token:', req.user.id);
+  console.log('[USER ROUTES] Request body:', JSON.stringify(req.body, null, 2));
+
+  try {
+    const { name } = req.body;
+
+    if (name === undefined) {
+      console.log('[USER ROUTES] No name provided in request');
+      return res.status(400).json({
+        success: false,
+        message: 'Name is required'
+      });
+    }
+
+    console.log('[USER ROUTES] Updating user name to:', name);
+    const updatedUser = await UserService.updateUser(req.user.id, { name });
+    console.log('[USER ROUTES] User profile updated successfully');
+
+    const response = {
+      success: true,
+      message: 'Profile updated successfully',
+      data: updatedUser
+    };
+    console.log('[USER ROUTES] Sending response:', JSON.stringify(response, null, 2));
+
+    res.status(200).json(response);
+  } catch (error) {
+    console.error('[USER ROUTES] Error updating user profile:', error.message);
+    console.error('[USER ROUTES] Error stack:', error.stack);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while updating profile'
     });
   }
 });
@@ -95,8 +134,8 @@ router.get('/:id', async (req, res) => {
       });
     }
 
-    console.log('[USER ROUTES] Calling UserService.get with ID:', id);
-    const user = await UserService.get(id);
+    console.log('[USER ROUTES] Calling UserService.getUserById with ID:', id);
+    const user = await UserService.getUserById(id);
 
     if (!user) {
       console.log('[USER ROUTES] User not found with ID:', id);
@@ -108,7 +147,7 @@ router.get('/:id', async (req, res) => {
     console.log('[USER ROUTES] User retrieved successfully:', user.email);
     const response = {
       success: true,
-      data: user.toObject()
+      data: user
     };
     console.log('[USER ROUTES] Sending response:', JSON.stringify(response, null, 2));
     

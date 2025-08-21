@@ -6,7 +6,6 @@ export function Dashboard() {
   const [selectedCameraId, setSelectedCameraId] = useState<string | undefined>(undefined)
   const [cameraUpdateTrigger, setCameraUpdateTrigger] = useState(0)
   const [screenSize, setScreenSize] = useState<'mobile' | 'tablet' | 'desktop'>(() => {
-    // Initialize with correct screen size to prevent initial re-render
     if (typeof window !== 'undefined') {
       if (window.innerWidth < 768) return 'mobile'
       if (window.innerWidth < 1024) return 'tablet'
@@ -23,7 +22,7 @@ export function Dashboard() {
     setCameraUpdateTrigger(prev => prev + 1)
   }
 
-  // Track screen size to conditionally render layouts with debouncing
+
   useEffect(() => {
     let timeoutId: NodeJS.Timeout
     
@@ -35,7 +34,7 @@ export function Dashboard() {
           : 'desktop'
         
         setScreenSize(current => current !== newSize ? newSize : current)
-      }, 100) // Debounce resize events
+      }, 100)
     }
 
     window.addEventListener('resize', checkScreenSize)

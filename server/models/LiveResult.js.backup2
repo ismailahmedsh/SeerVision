@@ -77,7 +77,7 @@ class LiveResult {
     });
   }
 
-  static async getSummary(from, to, userId) {
+  static async getSummary(from, to) {
     return new Promise((resolve, reject) => {
       try {
         const db = getDb();
@@ -88,16 +88,14 @@ class LiveResult {
         const query = `
           SELECT 
             COUNT(*) as totalDetections,
-            AVG(lr.confidence) as averageConfidence,
-            COUNT(DISTINCT lr.cameraId) as activeCameras
-          FROM live_results lr
-          JOIN cameras c ON lr.cameraId = c.id
-          WHERE lr.success = 1 
-          AND datetime(lr.ts) BETWEEN datetime(?) AND datetime(?)
-          AND c.userId = ?
+            AVG(confidence) as averageConfidence,
+            COUNT(DISTINCT cameraId) as activeCameras
+          FROM live_results 
+          WHERE success = 1 
+          AND datetime(ts) BETWEEN datetime(?) AND datetime(?)
         `;
 
-        db.get(query, [from, to, userId], (err, row) => {
+        db.get(query, [from, to], (err, row) => {
           if (err) {
             console.error('Error getting summary:', err.message);
             reject(err);
@@ -112,7 +110,7 @@ class LiveResult {
     });
   }
 
-  static async getTopQueries(from, to, limit = 5, userId) {
+  static async getTopQueries(from, to, limit = 5) {
     return new Promise((resolve, reject) => {
       try {
         const db = getDb();
@@ -122,22 +120,20 @@ class LiveResult {
 
         const query = `
           SELECT 
-            COALESCE(lr.promptText, 'Unknown Query') as query,
+            COALESCE(promptText, 'Unknown Query') as query,
             COUNT(*) as count,
-            AVG(lr.confidence) as confidence,
-            MIN(lr.ts) as firstUsed,
-            MAX(lr.ts) as lastUsed
-          FROM live_results lr
-          JOIN cameras c ON lr.cameraId = c.id
-          WHERE lr.success = 1 
-          AND datetime(lr.ts) BETWEEN datetime(?) AND datetime(?)
-          AND c.userId = ?
-          GROUP BY lr.promptText
+            AVG(confidence) as confidence,
+            MIN(ts) as firstUsed,
+            MAX(ts) as lastUsed
+          FROM live_results 
+          WHERE success = 1 
+          AND datetime(ts) BETWEEN datetime(?) AND datetime(?)
+          GROUP BY promptText
           ORDER BY count DESC
           LIMIT ?
         `;
 
-        db.all(query, [from, to, userId, limit], (err, rows) => {
+        db.all(query, [from, to, limit], (err, rows) => {
           if (err) {
             console.error('Error getting top queries:', err.message);
             reject(err);
@@ -152,7 +148,7 @@ class LiveResult {
     });
   }
 
-  static async getCameraPerformance(from, to, userId) {
+  static async getCameraPerformance(from, to) {
     return new Promise((resolve, reject) => {
       try {
         const db = getDb();
@@ -170,12 +166,11 @@ class LiveResult {
           JOIN cameras c ON lr.cameraId = c.id
           WHERE lr.success = 1 
           AND datetime(lr.ts) BETWEEN datetime(?) AND datetime(?)
-          AND c.userId = ?
           GROUP BY lr.cameraId, c.name
           ORDER BY detections DESC
         `;
 
-        db.all(query, [from, to, userId], (err, rows) => {
+        db.all(query, [from, to], (err, rows) => {
           if (err) {
             console.error('Error getting camera performance:', err.message);
             reject(err);

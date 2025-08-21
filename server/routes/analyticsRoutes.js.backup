@@ -141,14 +141,6 @@ router.get('/', async (req, res) => {
     let from, to;
     
     switch (timeRange) {
-      case '1h':
-        from = new Date(now.getTime() - 60 * 60 * 1000);
-        to = now;
-        break;
-      case '6h':
-        from = new Date(now.getTime() - 6 * 60 * 60 * 1000);
-        to = now;
-        break;
       case '24h':
         from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         to = now;
@@ -172,9 +164,9 @@ router.get('/', async (req, res) => {
 
     // Get all analytics data in parallel
     const [summary, topQueries, cameraPerformance] = await Promise.all([
-      LiveResult.getSummary(from.toISOString(), to.toISOString(), req.user.id),
-      LiveResult.getTopQueries(from.toISOString(), to.toISOString(), 1000, req.user.id),
-      LiveResult.getCameraPerformance(from.toISOString(), to.toISOString(), req.user.id)
+      LiveResult.getSummary(from.toISOString(), to.toISOString()),
+      LiveResult.getTopQueries(from.toISOString(), to.toISOString(), 5),
+      LiveResult.getCameraPerformance(from.toISOString(), to.toISOString())
     ]);
 
     // Calculate daily average
@@ -193,9 +185,7 @@ router.get('/', async (req, res) => {
         topQueries: topQueries.map(q => ({
           query: q.query,
           count: q.count,
-          confidence: q.confidence || 0,
-          firstUsed: q.firstUsed,
-          lastUsed: q.lastUsed
+          confidence: q.confidence || 0
         })),
         dailyStats: [], // This would need a separate method for daily breakdown
         cameraStats: cameraPerformance.map(c => ({

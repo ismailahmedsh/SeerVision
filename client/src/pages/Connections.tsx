@@ -53,32 +53,25 @@ export function Connections() {
   const [hiddenVideos, setHiddenVideos] = useState<Record<string, HTMLVideoElement>>({})
   const [videoStreams, setVideoStreams] = useState<Record<string, MediaStream>>({})
   const [analysisIntervals, setAnalysisIntervals] = useState<Record<string, NodeJS.Timeout>>({})
-  const [activeStreams, setActiveStreams] = useState<Record<string, string>>({}) // connectionId -> streamId
+  const [activeStreams, setActiveStreams] = useState<Record<string, string>>({})
   const { toast } = useToast()
 
-  // Load saved prompts and cameras on mount
   useEffect(() => {
     try {
       loadSavedPrompts()
       loadCameras()
     } catch (error) {
-      console.error("Error in useEffect:", error)
       setError("Failed to initialize connections page")
       setLoading(false)
     }
   }, [])
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      console.log('[CONNECTIONS] Component unmounting, cleaning up resources')
-      
-      // Clear all intervals
       Object.values(analysisIntervals).forEach(intervalId => {
         clearInterval(intervalId)
       })
       
-      // Cleanup all videos
       Object.keys(hiddenVideos).forEach(connectionId => {
         cleanupVideo(connectionId)
       })
@@ -90,36 +83,31 @@ export function Connections() {
       setLoading(true)
       setError(null)
       
-      console.log("Loading saved prompts...")
-      
       const response = await getAnalyticsData({ timeRange: '90d' })
-      console.log("Analytics response:", response)
-      
       const topQueries = response.data?.topQueries || []
-      console.log("Top queries:", topQueries)
       
-      // Convert analytics queries to connection rows  
-      const connectionRows: ConnectionRow[] = topQueries.map((query: any, index: number) => ({
+      const sortedQueries = topQueries.sort((a: any, b: any) => 
+        new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime()
+      );
+      
+      const connectionRows: ConnectionRow[] = sortedQueries.map((query: any, index: number) => ({
         id: `connection-${index}`,
         promptText: query.query,
-        cameraId: undefined, // Will be populated later when cameras are selected
+        cameraId: undefined,
         options: {
-          interval_s: 30, // Default interval
-          json: false,    // Default JSON off
-          memory: false   // Default memory off
+          interval_s: 30,
+          json: false,
+          memory: false
         },
-        status: "idle" as ConnectionStatus, // Default to idle
+        status: "idle" as ConnectionStatus,
         cameraType: undefined
       }))
       
-      console.log("Connection rows:", connectionRows)
       setConnections(connectionRows)
     } catch (error: any) {
-      console.error("Error loading saved prompts:", error)
       const errorMessage = error.message || "Failed to load saved prompts"
       setError(errorMessage)
-      
-      // Don't show toast if there's no toast function available
+
       try {
         toast({
           title: "Error",
@@ -127,7 +115,7 @@ export function Connections() {
           variant: "destructive",
         })
       } catch (toastError) {
-        console.error("Toast error:", toastError)
+        // Silent fallback
       }
     } finally {
       setLoading(false)
@@ -137,23 +125,17 @@ export function Connections() {
   const loadCameras = async () => {
     try {
       setLoadingCameras(true)
-      console.log("Loading cameras...")
-      
       const response = await getCameras()
       const cameraList = response.cameras || []
-      console.log("Cameras loaded:", cameraList)
-      
       setCameras(cameraList)
     } catch (error: any) {
-      console.error("Error loading cameras:", error)
-      // Don't show error toast for cameras as it's not critical
-      // The UI will show "No cameras available" in the dropdown
+      // Silent fallback
     } finally {
       setLoadingCameras(false)
     }
   }
 
-  // Status filter chips data
+
   const statusFilters: { value: StatusFilter; label: string; count: number }[] = [
     { value: "all", label: "All", count: connections.length },
     { value: "running", label: "Running", count: connections.filter(c => c.status === "running").length },
@@ -161,7 +143,7 @@ export function Connections() {
     { value: "error", label: "Error", count: connections.filter(c => c.status === "error").length }
   ]
 
-  // Filter connections based on search and status
+
   const filteredConnections = connections.filter(connection => {
     const matchesSearch = connection.promptText.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesStatus = statusFilter === "all" || connection.status === statusFilter
@@ -169,10 +151,8 @@ export function Connections() {
   })
 
   const updateConnectionCamera = async (connectionId: string, cameraId: string) => {
-    // Don't set camera if it's the disabled "no-cameras" option
     if (cameraId === "no-cameras") return
     
-    // Cleanup existing video if switching cameras
     const currentConnection = connections.find(c => c.id === connectionId)
     if (currentConnection?.cameraId && currentConnection.cameraId !== cameraId) {
       cleanupVideo(connectionId)
@@ -182,11 +162,9 @@ export function Connections() {
       conn.id === connectionId ? { ...conn, cameraId } : conn
     ))
 
-    // Setup hidden video for the new camera
     try {
       await setupHiddenVideo(connectionId, cameraId)
     } catch (error) {
-      console.error(`[CONNECTIONS] Failed to setup video for camera ${cameraId}:`, error)
       toast({
         title: "Camera Setup Failed",
         description: "Failed to setup camera for analysis. Please try selecting the camera again.",
@@ -244,13 +222,11 @@ export function Connections() {
     return camera ? `${camera.name} (${camera.type})` : "Unknown camera"
   }
 
-  // Create and setup hidden video element for camera
   const setupHiddenVideo = async (connectionId: string, cameraId: string) => {
     try {
       const camera = cameras.find(c => c._id === cameraId)
       if (!camera) throw new Error("Camera not found")
 
-      // Create hidden video element
       const video = document.createElement('video')
       video.id = `hidden-video-${connectionId}`
       video.style.display = 'none'
@@ -258,10 +234,8 @@ export function Connections() {
       video.playsInline = true
       video.autoplay = true
       
-      // Add to document body
       document.body.appendChild(video)
 
-      // Setup video stream
       if (camera.type === 'usb' || camera.streamUrl.startsWith('usb:')) {
         const deviceId = camera.streamUrl.replace('usb:', '')
         const constraints = {
@@ -279,20 +253,16 @@ export function Connections() {
       await video.play()
       setHiddenVideos(prev => ({ ...prev, [connectionId]: video }))
       
-      console.log(`[CONNECTIONS] Hidden video setup completed for connection ${connectionId}`)
       return video
     } catch (error) {
-      console.error(`[CONNECTIONS] Failed to setup hidden video for connection ${connectionId}:`, error)
       throw error
     }
   }
 
-  // Capture frame from hidden video element
   const captureFrame = (connectionId: string): string | null => {
     try {
       const video = hiddenVideos[connectionId]
       if (!video || video.readyState < 2) {
-        console.warn(`[CONNECTIONS] Video not ready for frame capture: ${connectionId}`)
         return null
       }
 
@@ -302,25 +272,20 @@ export function Connections() {
       
       const ctx = canvas.getContext('2d')
       if (!ctx) {
-        console.error(`[CONNECTIONS] Failed to get canvas context for connection ${connectionId}`)
         return null
       }
 
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
       const frameBase64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1]
       
-      console.log(`[CONNECTIONS] Frame captured for connection ${connectionId}, size: ${frameBase64.length}`)
       return frameBase64
     } catch (error) {
-      console.error(`[CONNECTIONS] Frame capture failed for connection ${connectionId}:`, error)
       return null
     }
   }
 
-  // Cleanup hidden video and streams
   const cleanupVideo = (connectionId: string) => {
     try {
-      // Stop video stream
       const stream = videoStreams[connectionId]
       if (stream) {
         stream.getTracks().forEach(track => track.stop())
@@ -330,7 +295,6 @@ export function Connections() {
         })
       }
 
-      // Remove video element
       const video = hiddenVideos[connectionId]
       if (video) {
         video.pause()
@@ -344,14 +308,11 @@ export function Connections() {
           return rest
         })
       }
-
-      console.log(`[CONNECTIONS] Video cleanup completed for connection ${connectionId}`)
     } catch (error) {
-      console.error(`[CONNECTIONS] Video cleanup failed for connection ${connectionId}:`, error)
+      // Silent cleanup failure
     }
   }
 
-  // Start analysis stream
   const startAnalysisStream = async (connection: ConnectionRow): Promise<string> => {
     try {
       const response = await api.post('/api/video-analysis/stream', {
@@ -366,15 +327,13 @@ export function Connections() {
         throw new Error(response.data.message || 'Failed to create analysis stream')
       }
 
-      console.log(`[CONNECTIONS] Analysis stream created: ${response.data.streamId}`)
       return response.data.streamId
     } catch (error: any) {
-      console.error(`[CONNECTIONS] Failed to create analysis stream:`, error)
       throw new Error(error.response?.data?.error || error.message || 'Failed to create analysis stream')
     }
   }
 
-  // Send frame for analysis
+
   const analyzeFrame = async (connection: ConnectionRow, streamId: string, frameBase64: string) => {
     try {
       const response = await api.post('/api/video-analysis/frame', {
@@ -386,26 +345,25 @@ export function Connections() {
       })
 
       if (response.data.success) {
-        console.log(`[CONNECTIONS] Frame analysis completed for stream ${streamId}`)
+
         return response.data
       } else {
         throw new Error(response.data.error || 'Analysis failed')
       }
     } catch (error: any) {
-      console.error(`[CONNECTIONS] Frame analysis failed for stream ${streamId}:`, error)
+
       throw error
     }
   }
 
-  // Forward results to webhook
+
   const forwardToWebhook = async (connection: ConnectionRow, analysisResult: any) => {
-    // For now, we'll store the webhook config in localStorage per connection
-    // In a real implementation, this would be stored on the server
+
     const webhookConfigKey = `webhook-config-${connection.id}`
     const webhookConfig = localStorage.getItem(webhookConfigKey)
     
     if (!webhookConfig) {
-      console.log(`[CONNECTIONS] No webhook configured for connection ${connection.id}`)
+
       return
     }
 
@@ -418,7 +376,19 @@ export function Connections() {
       // If JSON option is enabled, try to parse and format the preview
       if (analysisResult.jsonOption && formattedPreview) {
         try {
-          const parsedJson = JSON.parse(formattedPreview)
+          // Extract JSON from markdown code blocks if present
+          let jsonToParse = formattedPreview
+          
+          // Check if wrapped in markdown code blocks
+          if (jsonToParse.includes('```json') || jsonToParse.includes('```')) {
+            // Extract content between code blocks
+            const codeBlockMatch = jsonToParse.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
+            if (codeBlockMatch) {
+              jsonToParse = codeBlockMatch[1].trim()
+            }
+          }
+          
+          const parsedJson = JSON.parse(jsonToParse)
           formattedPreview = parsedJson // Send parsed JSON object instead of string
         } catch (error) {
           // If parsing fails, keep the original string
@@ -687,7 +657,7 @@ export function Connections() {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto max-h-[32rem] overflow-y-auto">
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-slate-200 dark:border-slate-700">

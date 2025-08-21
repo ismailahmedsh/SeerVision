@@ -125,7 +125,7 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
   }
 
   const handleAnalysisIntervalChange = (value: number) => {
-    const enforcedInterval = Math.max(6, value)
+    const enforcedInterval = Math.max(10, value)
     if (settings) {
       setSettings({
         ...settings,
@@ -307,18 +307,18 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
                     value={[settings.analysisInterval]}
                     onValueChange={(value) => handleAnalysisIntervalChange(value[0])}
                     max={120}
-                    min={6}
+                    min={10}
                     step={1}
                     className="w-full"
                   />
                   <div className="flex justify-between text-sm text-slate-500 mt-1">
-                    <span>6s (Minimum)</span>
+                    <span>10s (Minimum)</span>
                     <span className="font-medium">{settings.analysisInterval}s</span>
                     <span>120s (Maximum)</span>
                   </div>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Analysis interval will be applied after clicking "Save Settings". Minimum 6 seconds required.
+                  Analysis interval will be applied after clicking "Save Settings". Minimum 10 seconds required.
                 </p>
               </div>
               

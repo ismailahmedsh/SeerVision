@@ -404,10 +404,10 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
     }
 
     const cameraInterval = selectedCamera.analysisInterval
-    if (!cameraInterval || cameraInterval < 6 || cameraInterval > 120) {
+    if (!cameraInterval || cameraInterval < 10 || cameraInterval > 120) {
       toast({
         title: "Error",
-        description: "Invalid camera analysis interval: " + cameraInterval + "s. Please set interval between 6-120 seconds in camera settings.",
+        description: "Invalid camera analysis interval: " + cameraInterval + "s. Please set interval between 10-120 seconds in camera settings.",
         variant: "destructive"
       })
       return
@@ -544,7 +544,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
                 confidence: responseData.debugInfo?.accuracyScore || 0.7
               }
 
-              setResults(prev => [modelResult, ...prev.slice(0, 9)])
+              setResults(prev => [modelResult, ...prev])
             }
           }
 
@@ -554,7 +554,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
             timestamp: new Date().toISOString(),
             answer: `Analysis failed: ${analysisError.message || 'Unknown error'}`,
             confidence: 0
-          }, ...prev.slice(0, 9)])
+          }, ...prev])
         } finally {
           setIsProcessingFrame(false)
         }
@@ -779,7 +779,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
         </CardContent>
       </Card>
 
-      <Card className="flex-1">
+      <Card className={isAnalyzing ? "h-[calc(100vh-35rem)]" : "h-[calc(100vh-40rem)]"}>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2">
             <Clock className="w-5 h-5" />
@@ -787,7 +787,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <ScrollArea className="h-[calc(90vh-40rem)]">
+          <ScrollArea className={isAnalyzing ? "h-[calc(100vh-40rem)]" : "h-[calc(100vh-45rem)]"}>
             <div className="space-y-4">
               {results.length > 0 ? (
                 results.map((result, index) => renderResult(result, index))

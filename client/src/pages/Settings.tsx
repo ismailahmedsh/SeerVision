@@ -30,76 +30,66 @@ export function Settings() {
     newPassword: '',
     confirmPassword: ''
   })
+  const [originalSettings, setOriginalSettings] = useState(null)
   const { toast } = useToast()
   const { settings, updateSetting, saveSettings, refreshSettings, loading } = useSettings()
-  const { isAuthenticated, user } = useAuth()
-  
-  // Debug logging for settings state
-  useEffect(() => {
-    console.log("Settings state changed:", {
-      settings,
-      loading,
-      hasSettings: !!settings,
-      profileName: settings?.profile?.name,
-      analysisInterval: settings?.analysis?.defaultInterval
-    })
-  }, [settings, loading])
-  
+  const { isAuthenticated, user, updateUser } = useAuth()
 
+  useEffect(() => {
+    if (settings && !originalSettings) {
+      setOriginalSettings({
+        profile: { name: settings.profile?.name || "" },
+        analysis: { defaultInterval: settings.analysis?.defaultInterval || 10 }
+      })
+    }
+  }, [settings, originalSettings])
+
+  const hasChanges = settings && originalSettings && (
+    settings.profile?.name !== originalSettings.profile?.name ||
+    settings.analysis?.defaultInterval !== originalSettings.analysis?.defaultInterval
+  )
+  
 
   const handleSaveSettings = async () => {
     try {
       setSaving(true)
       
-      console.log("Starting to save settings...")
-      console.log("Current settings:", settings)
-      
-      // Check if settings exist
       if (!settings) {
         throw new Error("Settings not loaded yet")
       }
-      
-      // Only save settings that have been modified
       const settingsToSave = {
         profile: {
           name: settings.profile?.name || ""
         },
         analysis: {
-          defaultInterval: settings.analysis?.defaultInterval || 6
+          defaultInterval: settings.analysis?.defaultInterval || 10
         }
       }
-      
-      console.log("Settings to save:", settingsToSave)
-      
-      // Test the updateSettings function first
       try {
         const result = await updateSettings(settingsToSave)
-        console.log("Update result:", result)
+        
+        if (settingsToSave.profile?.name && result.success) {
+          updateUser({ name: settingsToSave.profile.name })
+        }
       } catch (updateError) {
-        console.error("Error in updateSettings:", updateError)
         throw new Error(`Failed to update settings: ${updateError.message}`)
       }
-      
-      // Test the refreshSettings function
       try {
         await refreshSettings()
-        console.log("Settings refreshed successfully")
       } catch (refreshError) {
-        console.error("Error in refreshSettings:", refreshError)
-        // Don't throw here, just log the error
+        // Silent refresh failure
       }
+      
+      setOriginalSettings({
+        profile: { name: settingsToSave.profile?.name || "" },
+        analysis: { defaultInterval: settingsToSave.analysis?.defaultInterval || 10 }
+      })
       
       toast({
         title: "Success",
         description: "Settings saved successfully",
       })
     } catch (error) {
-      console.error("Error saving settings:", error)
-      console.error("Error details:", {
-        message: error.message,
-        stack: error.stack,
-        error
-      })
       toast({
         title: "Error",
         description: `Failed to save settings: ${error.message}`,
@@ -123,14 +113,12 @@ export function Settings() {
     try {
       setChangingPassword(true)
 
-      // await changePassword(passwordData.oldPassword, passwordData.newPassword)
-      
+
       toast({
         title: "Success",
         description: "Password changed successfully",
       })
-      
-      // Reset password form
+
       setPasswordData({
         oldPassword: '',
         newPassword: '',
@@ -138,7 +126,6 @@ export function Settings() {
       })
       setChangingPassword(false)
     } catch (error) {
-      console.error("Error changing password:", error)
       toast({
         title: "Error",
         description: "Failed to change password",
@@ -153,8 +140,7 @@ export function Settings() {
     try {
       setResettingData(true)
 
-      // await resetAnalyticsData()
-      
+
       toast({
         title: "Success",
         description: "All analytics data has been reset successfully",
@@ -162,7 +148,6 @@ export function Settings() {
       
       setShowResetConfirm(false)
     } catch (error) {
-      console.error("Error resetting analytics data:", error)
       toast({
         title: "Error",
         description: "Failed to reset analytics data",
@@ -181,9 +166,7 @@ export function Settings() {
           <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/2"></div>
         </div>
         <div className="h-96 bg-slate-200 dark:bg-slate-700 rounded animate-pulse"></div>
-        
-
-      </div>
+</div>
     )
   }
 
@@ -200,7 +183,7 @@ export function Settings() {
         </div>
                  <Button
            onClick={handleSaveSettings}
-           disabled={saving || !settings || (!settings.profile?.name && !settings.analysis?.defaultInterval)}
+           disabled={saving || !settings || !hasChanges}
            className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white"
          >
            {saving ? "Saving..." : "Save Changes"}
@@ -297,9 +280,7 @@ export function Settings() {
            </Card>
          </TabsContent>
 
-
-
-                 <TabsContent value="analysis" className="space-y-6">
+         <TabsContent value="analysis" className="space-y-6">
            <Card className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm border-slate-200 dark:border-slate-700">
              <CardHeader>
                <CardTitle className="flex items-center gap-2">
@@ -310,16 +291,16 @@ export function Settings() {
              <CardContent className="space-y-6">
                <div className="space-y-2">
                  <Label htmlFor="interval">Default Update Interval (seconds)</Label>
-                                   <Input
+                  <Input
                     id="interval"
                     type="number"
-                    min="6"
+                    min="10"
                     max="120"
-                    value={settings?.analysis.defaultInterval || 6}
+                    value={settings?.analysis.defaultInterval || 10}
                     onChange={(e) => updateSetting('analysis', 'defaultInterval', parseInt(e.target.value))}
                   />
                   <p className="text-xs text-slate-600 dark:text-slate-400">
-                    How often to update analysis data (6-120 seconds)
+                    How often to update analysis data (10-120 seconds)
                   </p>
                </div>
              </CardContent>
@@ -353,7 +334,7 @@ export function Settings() {
          </TabsContent>
        </Tabs>
 
-       {/* Reset Analytics Data Confirmation Dialog */}
+
        <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
          <AlertDialogContent>
            <AlertDialogHeader>

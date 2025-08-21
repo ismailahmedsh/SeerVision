@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select"
 import { addCamera, testCameraConnection } from "@/api/cameras"
 import { useToast } from "@/hooks/useToast"
+import { useSettings } from "@/contexts/SettingsContext"
 
 interface AddCameraDialogProps {
   open: boolean
@@ -48,6 +49,7 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
   const [availableDevices, setAvailableDevices] = useState<MediaDeviceInfo[]>([])
   const [loadingDevices, setLoadingDevices] = useState(false)
   const { toast } = useToast()
+  const { settings } = useSettings()
 
   const {
     register,
@@ -196,7 +198,8 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
       let cameraData = {
         name: data.name,
         type: data.type,
-        streamUrl: data.streamUrl || ''
+        streamUrl: data.streamUrl || '',
+        defaultInterval: settings?.analysis?.defaultInterval || 10
       }
 
       // For USB cameras, use device ID as stream URL

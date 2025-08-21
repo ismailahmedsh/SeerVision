@@ -14,10 +14,11 @@ class LLaVAService {
     this.suggestionCache = new Map();
     this.backgroundSuggestionQueue = new Map();
 
-    // Concurrency control
+    // Simple Queue Logic - One queue per stream with global concurrency
     this.maxConcurrency = parseInt(process.env.ANALYSIS_MAX_CONCURRENCY) || 2;
-    this.activeAnalysisCount = 0;
-    this.analysisQueue = [];
+    this.streamQueues = new Map(); // streamId -> { processing: null, waiting: null }
+    this.activeStreams = new Set(); // streamIds currently processing
+    this.globalWaitingList = []; // streams waiting for capacity
 
     // Create HTTP agents with keep-alive for better connection reuse
     this.httpAgent = new http.Agent({
@@ -65,6 +66,7 @@ class LLaVAService {
 
     console.log(`[LLAVA_SERVICE] Initialized with NO TIMEOUTS for all requests`);
     console.log(`[LLAVA_SERVICE] HTTP agents configured with keep-alive`);
+    console.log(`[LLAVA_SERVICE] Simple Queue Logic enabled - max ${this.maxConcurrency} concurrent streams`);
   }
 
   async preprocessFrame(frameBase64, targetSize = 256) {
@@ -99,18 +101,118 @@ class LLaVAService {
   }
 
   async analyzeFrameWithQueue(frameBase64, prompt, intervalSeconds = 30, streamId = null) {
-    // Check concurrency limit
-    if (this.activeAnalysisCount >= this.maxConcurrency) {
-      // Apply backpressure - reject instead of queuing
-      throw new Error(`Analysis queue full (${this.activeAnalysisCount}/${this.maxConcurrency}). Dropping frame to prevent overload.`);
+    if (!streamId) {
+      // No queue for requests without streamId
+      return await this.analyzeFrame(frameBase64, prompt, intervalSeconds, streamId);
     }
 
-    this.activeAnalysisCount++;
+    return new Promise((resolve, reject) => {
+      this.enqueueFrame(streamId, {
+        frameBase64,
+        prompt,
+        intervalSeconds,
+        resolve,
+        reject,
+        requestId: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: Date.now()
+      });
+    });
+  }
 
+  enqueueFrame(streamId, frameData) {
+    console.log(`[QUEUE] [${frameData.requestId}] Enqueueing frame for stream: ${streamId}`);
+    
+    // Initialize stream queue if needed
+    if (!this.streamQueues.has(streamId)) {
+      this.streamQueues.set(streamId, { processing: null, waiting: null });
+    }
+    
+    const queue = this.streamQueues.get(streamId);
+    
+    // If stream is processing, handle waiting slot
+    if (queue.processing) {
+      // Replace waiting frame if exists (newest frame wins)
+      if (queue.waiting) {
+        console.log(`[QUEUE] [${frameData.requestId}] Replacing waiting frame for stream: ${streamId}`);
+        queue.waiting.resolve({
+          status: 'superseded',
+          message: 'Frame superseded by newer frame',
+          streamId,
+          requestId: queue.waiting.requestId
+        });
+      }
+      
+      queue.waiting = frameData;
+      console.log(`[QUEUE] [${frameData.requestId}] Frame queued as waiting for stream: ${streamId}`);
+      return;
+    }
+    
+    // Stream not processing, check global capacity
+    if (this.activeStreams.size >= this.maxConcurrency) {
+      // Global capacity full, queue in waiting list
+      queue.waiting = frameData;
+      if (!this.globalWaitingList.includes(streamId)) {
+        this.globalWaitingList.push(streamId);
+      }
+      console.log(`[QUEUE] [${frameData.requestId}] Global capacity full (${this.activeStreams.size}/${this.maxConcurrency}), stream ${streamId} waiting`);
+      return;
+    }
+    
+    // Start processing immediately
+    this.startStreamProcessing(streamId, frameData);
+  }
+  
+  async startStreamProcessing(streamId, frameData) {
+    console.log(`[QUEUE] [${frameData.requestId}] Starting processing for stream: ${streamId}`);
+    
+    const queue = this.streamQueues.get(streamId);
+    queue.processing = frameData;
+    this.activeStreams.add(streamId);
+    
     try {
-      return await this.analyzeFrame(frameBase64, prompt, intervalSeconds, streamId);
+      const result = await this.processFrame(
+        frameData.frameBase64,
+        frameData.prompt,
+        frameData.intervalSeconds,
+        streamId,
+        frameData.requestId
+      );
+      
+      frameData.resolve(result);
+      console.log(`[QUEUE] [${frameData.requestId}] Processing completed for stream: ${streamId}`);
+      
+    } catch (error) {
+      frameData.reject(error);
+      console.error(`[QUEUE] [${frameData.requestId}] Processing failed for stream: ${streamId}:`, error.message);
     } finally {
-      this.activeAnalysisCount--;
+      // Processing complete, check for next frame
+      queue.processing = null;
+      this.activeStreams.delete(streamId);
+      
+      // Process waiting frame in this stream
+      if (queue.waiting) {
+        const nextFrame = queue.waiting;
+        queue.waiting = null;
+        console.log(`[QUEUE] [${nextFrame.requestId}] Processing waiting frame for stream: ${streamId}`);
+        this.startStreamProcessing(streamId, nextFrame);
+      } else if (this.globalWaitingList.length > 0) {
+        // No waiting frame, check global waiting list
+        this.processGlobalWaitingList();
+      }
+    }
+  }
+  
+  processGlobalWaitingList() {
+    while (this.globalWaitingList.length > 0 && this.activeStreams.size < this.maxConcurrency) {
+      const waitingStreamId = this.globalWaitingList.shift();
+      const waitingQueue = this.streamQueues.get(waitingStreamId);
+      
+      if (waitingQueue && waitingQueue.waiting && !waitingQueue.processing) {
+        const frameData = waitingQueue.waiting;
+        waitingQueue.waiting = null;
+        console.log(`[QUEUE] [${frameData.requestId}] Starting processing from global waiting list for stream: ${waitingStreamId}`);
+        this.startStreamProcessing(waitingStreamId, frameData);
+      }
     }
   }
 
@@ -137,19 +239,24 @@ class LLaVAService {
       console.log(`[LLAVA_SERVICE] [${requestId}] NOVELTY REQUEST DETECTED - UNLIMITED TIME`);
     }
 
-    if (!isSuggestionRequest && streamId && this.activeRequests.has(streamId)) {
-      const activeRequest = this.activeRequests.get(streamId);
-      const requestAge = Date.now() - activeRequest.startTime;
+    // ALL ROUTES GO THROUGH QUEUE - No direct processing
+    return await this.analyzeFrameWithQueue(frameBase64, prompt, intervalSeconds, streamId);
+  }
 
-      // Check if this is a memory-related request
-      if (streamId && streamId.includes('_novelty')) {
-        console.log(`[MEMORY_LOGGING] NOVELTY_SKIPPED_DUE_TO_QUEUE: Stream ${streamId} dropped due to main analysis in progress (${Math.round(requestAge/1000)}s)`);
-      } else {
-        console.log(`[VIDEO_ANALYSIS] Frame dropped: previous analysis still in progress (${Math.round(requestAge/1000)}s)`);
-      }
+  async processFrame(frameBase64, prompt, intervalSeconds, streamId, requestId) {
+    const analysisStartTime = Date.now();
+    
+    const isSuggestionRequest = streamId === 'suggestions' ||
+                               (streamId && streamId.startsWith('suggestion')) ||
+                               (streamId && streamId.startsWith('background'));
 
-      throw new Error(`Frame dropped: previous analysis still in progress (${Math.round(requestAge/1000)}s)`);
-    }
+    const isNoveltyRequest = streamId && (
+      streamId.includes('_novelty') ||
+      streamId.endsWith('_novelty_first') ||
+      streamId.endsWith('_novelty_async') ||
+      streamId.endsWith('_novelty_first_async') ||
+      streamId.endsWith('_novelty_async_late')
+    );
 
     if (!isSuggestionRequest && streamId) {
       this.activeRequests.set(streamId, {

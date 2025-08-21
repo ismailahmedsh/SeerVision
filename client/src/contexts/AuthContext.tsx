@@ -15,6 +15,7 @@ type AuthContextType = {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  updateUser: (userData: Partial<User>) => void;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -35,7 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem("refreshToken", response.refreshToken);
         localStorage.setItem("accessToken", response.accessToken);
         
-        // Store user data if available
+
         if (response.user) {
           localStorage.setItem("user", JSON.stringify(response.user));
           setUser(response.user);
@@ -75,8 +76,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.reload();
   };
 
+  const updateUser = (userData: Partial<User>) => {
+    setUser(prevUser => {
+      if (!prevUser) return null;
+      const updatedUser = { ...prevUser, ...userData };
+      localStorage.setItem("user", JSON.stringify(updatedUser));
+      return updatedUser;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, register, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, register, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

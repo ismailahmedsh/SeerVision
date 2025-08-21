@@ -8,6 +8,7 @@ const frameCaptureService = require('../services/frameCaptureService');
 const memoryService = require('../services/memoryService');
 const { authenticateToken } = require('./middleware/auth');
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 
 router.use(authenticateToken);
 
@@ -22,10 +23,10 @@ router.post('/stream', async (req, res) => {
       });
     }
 
-    if (analysisInterval < 6 || analysisInterval > 120) {
+    if (analysisInterval < 10 || analysisInterval > 120) {
       console.error('Stream creation failed: Invalid analysis interval', { analysisInterval });
       return res.status(400).json({
-        error: 'Analysis interval must be between 6 and 120 seconds'
+        error: 'Analysis interval must be between 10 and 120 seconds'
       });
     }
 
@@ -129,12 +130,12 @@ router.post('/frame', async (req, res) => {
 
     // Get the latest camera data to check for updated analysisInterval
     const camera = await Camera.findById(analysisSession.cameraId, req.user.id);
-    let analysisInterval = Math.max(6, analysisSession.analysisInterval || 30);
+    let analysisInterval = Math.max(10, analysisSession.analysisInterval || 30);
 
     // If camera has been updated with a new interval, use that instead
     if (camera && camera.analysisInterval && camera.analysisInterval !== analysisSession.analysisInterval) {
       console.log('[VIDEO_ANALYSIS] Camera interval updated from', analysisSession.analysisInterval, 'to', camera.analysisInterval);
-      analysisInterval = Math.max(6, camera.analysisInterval);
+      analysisInterval = Math.max(10, camera.analysisInterval);
 
       // Update the analysis session with the new interval for future use
       try {
@@ -211,6 +212,22 @@ ONLY return your response as a raw JSON object enclosed in curly braces { } with
       console.log('Sending frame to LLaVA service', { streamId, analysisInterval, memory: useMemory });
       const result = await llavaService.analyzeFrame(frameBase64, finalPrompt, analysisInterval, streamId);
 
+      // Handle superseded frames - don't store them, just return quick response
+      if (result.status === 'superseded') {
+        console.log('Frame superseded by newer frame', { streamId, requestId: result.requestId });
+        return res.json({
+          success: true,
+          status: 'superseded',
+          message: 'Frame superseded by newer frame',
+          streamId,
+          requestId: result.requestId,
+          nextAnalysisIn: analysisInterval,
+          timestamp: new Date().toISOString(),
+          jsonOption: jsonOption,
+          memory: useMemory
+        });
+      }
+
       const resultData = {
         streamId,
         answer: result.answer,
@@ -225,9 +242,12 @@ ONLY return your response as a raw JSON object enclosed in curly braces { } with
       try {
         const analysisSession = await VideoAnalysis.findByStreamId(streamId);
         if (analysisSession) {
+          // Create a hash of the prompt content for proper deduplication
+          const promptHash = crypto.createHash('md5').update(analysisSession.prompt.trim()).digest('hex');
+          
           await LiveResult.create({
             cameraId: analysisSession.cameraId,
-            promptId: streamId, // Using streamId as promptId for now
+            promptId: promptHash, // Hash of actual prompt content for proper deduplication
             promptText: analysisSession.prompt,
             success: true,
             confidence: result.accuracyScore || 0.8, // Default confidence if not provided
@@ -236,10 +256,11 @@ ONLY return your response as a raw JSON object enclosed in curly braces { } with
               analysisInterval,
               memory: useMemory,
               processingTime: result.processingTime,
-              answerLength: result.answer?.length || 0
+              answerLength: result.answer?.length || 0,
+              promptHash // Store hash for debugging/reference
             }
           });
-          console.log('[ANALYTICS] LiveResult stored successfully for analytics');
+          console.log('[ANALYTICS] LiveResult stored successfully for analytics with prompt hash:', promptHash.substring(0, 8) + '...');
         }
       } catch (analyticsError) {
         console.error('[ANALYTICS] Failed to store LiveResult for analytics:', analyticsError.message);
