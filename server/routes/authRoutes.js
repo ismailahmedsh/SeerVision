@@ -7,8 +7,6 @@ const jwt = require('jsonwebtoken');
 // Register endpoint
 router.post('/register', async (req, res) => {
   try {
-    console.log('[AUTH_ROUTES] POST /api/auth/register - Data:', req.body);
-    
     const { email, password, name } = req.body;
 
     if (!email || !password) {
@@ -41,8 +39,6 @@ router.post('/register', async (req, res) => {
 
     // Store refresh token
     await UserService.updateRefreshToken(user.id, refreshToken);
-
-    console.log('[AUTH_ROUTES] User registered successfully:', user.id);
     
     res.status(201).json({
       success: true,
@@ -67,8 +63,6 @@ router.post('/register', async (req, res) => {
 // Login endpoint
 router.post('/login', async (req, res) => {
   try {
-    console.log('[AUTH_ROUTES] POST /api/auth/login - Email:', req.body.email);
-    
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -93,8 +87,6 @@ router.post('/login', async (req, res) => {
     // Store refresh token and update last login
     await UserService.updateRefreshToken(user.id, refreshToken);
     await UserService.updateLastLogin(user.id);
-
-    console.log('[AUTH_ROUTES] User logged in successfully:', user.id);
     
     res.json({
       success: true,
@@ -119,8 +111,6 @@ router.post('/login', async (req, res) => {
 // Refresh token endpoint
 router.post('/refresh', async (req, res) => {
   try {
-    console.log('[AUTH_ROUTES] POST /api/auth/refresh');
-    
     const { refreshToken } = req.body;
 
     if (!refreshToken) {
@@ -143,8 +133,6 @@ router.post('/refresh', async (req, res) => {
     // Generate new access token
     const accessToken = generateAccessToken({ id: user.id, email: user.email });
 
-    console.log('[AUTH_ROUTES] Token refreshed for user:', user.id);
-    
     res.json({
       success: true,
       accessToken
@@ -160,8 +148,6 @@ router.post('/refresh', async (req, res) => {
 // Logout endpoint
 router.post('/logout', async (req, res) => {
   try {
-    console.log('[AUTH_ROUTES] POST /api/auth/logout');
-    
     const { refreshToken } = req.body;
 
     if (refreshToken) {
@@ -169,8 +155,6 @@ router.post('/logout', async (req, res) => {
       await UserService.clearRefreshToken(refreshToken);
     }
 
-    console.log('[AUTH_ROUTES] User logged out successfully');
-    
     res.json({
       success: true,
       message: 'Logout successful'
@@ -186,8 +170,6 @@ router.post('/logout', async (req, res) => {
 // Get user details endpoint
 router.get('/me', async (req, res) => {
   try {
-    console.log('[AUTH_ROUTES] GET /api/auth/me');
-    
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -205,8 +187,6 @@ router.get('/me', async (req, res) => {
         error: 'User not found'
       });
     }
-
-    console.log('[AUTH_ROUTES] User details retrieved for:', user.id);
     
     res.json({
       success: true,

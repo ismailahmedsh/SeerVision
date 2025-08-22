@@ -5,8 +5,6 @@ const { URL } = require('url');
 // Webhook service for testing and sending webhook notifications
 class WebhookService {
   constructor() {
-    console.log('[WEBHOOK_SERVICE] Initialized');
-    
     // Create axios instance with timeout and retry configuration
     this.httpClient = axios.create({
       timeout: 10000, // 10 seconds timeout
@@ -19,21 +17,19 @@ class WebhookService {
     
     // Add request interceptor for logging
     this.httpClient.interceptors.request.use((config) => {
-      console.log(`[WEBHOOK_SERVICE] Outbound request to: ${config.url}`);
       return config;
     });
     
     // Add response interceptor for logging
     this.httpClient.interceptors.response.use(
       (response) => {
-        console.log(`[WEBHOOK_SERVICE] Response from ${response.config.url}: ${response.status}`);
         return response;
       },
       (error) => {
         if (error.response) {
-          console.log(`[WEBHOOK_SERVICE] Error response from ${error.config?.url}: ${error.response.status}`);
+          console.error(`[WEBHOOK_SERVICE] Error response from ${error.config?.url}: ${error.response.status}`);
         } else {
-          console.log(`[WEBHOOK_SERVICE] Network error for ${error.config?.url}: ${error.message}`);
+          console.error(`[WEBHOOK_SERVICE] Network error for ${error.config?.url}: ${error.message}`);
         }
         return Promise.reject(error);
       }
@@ -93,46 +89,33 @@ class WebhookService {
   async testWebhook({ url, secret, payload }) {
     const startTime = Date.now();
     
-    console.log('[WEBHOOK_SERVICE] Testing webhook:', {
-      url: url,
-      hasSecret: !!secret,
-      payloadSize: JSON.stringify(payload).length
-    });
-    
-    try {
-      // Validate URL
-      const validation = this.validateWebhookUrl(url);
-      if (!validation.valid) {
-        console.log('[WEBHOOK_SERVICE] URL validation failed:', validation.error);
-        return {
-          success: false,
-          status: 400,
-          message: validation.error,
-          responseTime: Date.now() - startTime
-        };
-      }
-      
-      // Prepare headers
-      const headers = {
-        'Content-Type': 'application/json'
+    // Validate URL first
+    const validation = this.validateWebhookUrl(url);
+    if (!validation.valid) {
+      console.error('[WEBHOOK_SERVICE] URL validation failed:', validation.error);
+      return {
+        success: false,
+        error: validation.error,
+        responseTime: 0
       };
-      
-      // Add signature if secret is provided
-      if (secret) {
-        const signature = this.createSignature(payload, secret);
-        headers['X-Webhook-Signature'] = signature;
-        console.log('[WEBHOOK_SERVICE] Added webhook signature');
-      }
-      
-      // Send the webhook
+    }
+    
+    // Prepare headers
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    
+    // Add signature if secret is provided
+    if (secret) {
+      const signature = this.createSignature(payload, secret);
+      headers['X-Webhook-Signature'] = signature;
+    }
+    
+    // Send the webhook
+    try {
       const response = await this.httpClient.post(url, payload, { headers });
       
       const responseTime = Date.now() - startTime;
-      
-      console.log('[WEBHOOK_SERVICE] Webhook test successful:', {
-        status: response.status,
-        responseTime: `${responseTime}ms`
-      });
       
       return {
         success: true,
@@ -143,12 +126,6 @@ class WebhookService {
       
     } catch (error) {
       const responseTime = Date.now() - startTime;
-      
-      console.error('[WEBHOOK_SERVICE] Webhook test failed:', {
-        error: error.message,
-        status: error.response?.status,
-        responseTime: `${responseTime}ms`
-      });
       
       let message = 'Test failed: Unknown error';
       let status = 500;

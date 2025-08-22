@@ -60,7 +60,7 @@ export function Connections() {
     try {
       loadSavedPrompts()
       loadCameras()
-    } catch (error) {
+    } catch (error: any) {
       setError("Failed to initialize connections page")
       setLoading(false)
     }
@@ -114,7 +114,7 @@ export function Connections() {
           description: errorMessage,
           variant: "destructive",
         })
-      } catch (toastError) {
+      } catch (toastError: any) {
         // Silent fallback
       }
     } finally {
@@ -164,7 +164,7 @@ export function Connections() {
 
     try {
       await setupHiddenVideo(connectionId, cameraId)
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Camera Setup Failed",
         description: "Failed to setup camera for analysis. Please try selecting the camera again.",
@@ -254,7 +254,7 @@ export function Connections() {
       setHiddenVideos(prev => ({ ...prev, [connectionId]: video }))
       
       return video
-    } catch (error) {
+    } catch (error: any) {
       throw error
     }
   }
@@ -279,7 +279,7 @@ export function Connections() {
       const frameBase64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1]
       
       return frameBase64
-    } catch (error) {
+    } catch (error: any) {
       return null
     }
   }
@@ -308,7 +308,7 @@ export function Connections() {
           return rest
         })
       }
-    } catch (error) {
+    } catch (error: any) {
       // Silent cleanup failure
     }
   }
@@ -390,7 +390,7 @@ export function Connections() {
           
           const parsedJson = JSON.parse(jsonToParse)
           formattedPreview = parsedJson // Send parsed JSON object instead of string
-        } catch (error) {
+        } catch (error: any) {
           // If parsing fails, keep the original string
           console.warn('[CONNECTIONS] Failed to parse JSON preview:', error)
         }
@@ -466,7 +466,7 @@ export function Connections() {
           } else {
             console.warn(`[CONNECTIONS] Skipping analysis cycle - no frame captured for connection ${connection.id}`)
           }
-        } catch (error) {
+        } catch (error: any) {
           console.error(`[CONNECTIONS] Analysis cycle failed for connection ${connection.id}:`, error)
         }
       }, intervalMs)
@@ -516,7 +516,7 @@ export function Connections() {
         try {
           await api.delete(`/api/video-analysis/stream/${streamId}`)
           console.log(`[CONNECTIONS] Analysis stream stopped: ${streamId}`)
-        } catch (error) {
+        } catch (error: any) {
           console.warn(`[CONNECTIONS] Failed to stop analysis stream ${streamId}:`, error)
         }
         setActiveStreams(prev => {

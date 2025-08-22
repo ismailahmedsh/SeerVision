@@ -12,8 +12,6 @@ class User {
 
         const { email, password, name = '', role = 'user' } = userData;
 
-        console.log('[USER_MODEL] Creating user:', { email, name, role });
-
         // Hash the password before storing
         hashPassword(password).then(hashedPassword => {
           const query = `
@@ -30,7 +28,6 @@ class User {
                 reject(err);
               }
             } else {
-              console.log('[USER_MODEL] User created with ID:', this.lastID);
               User.findById(this.lastID)
                 .then(user => resolve(user))
                 .catch(findErr => {
@@ -58,8 +55,6 @@ class User {
           throw new Error('Database connection is not available');
         }
 
-        console.log('[USER_MODEL] Finding user by ID:', id);
-
         const query = `
           SELECT id, email, name, role, createdAt, lastLoginAt, isActive
           FROM users
@@ -71,7 +66,6 @@ class User {
             console.error('[USER_MODEL] Error finding user by ID:', err.message);
             reject(err);
           } else {
-            console.log('[USER_MODEL] User found by ID:', row ? 'Yes' : 'No');
             resolve(row);
           }
         });
@@ -90,8 +84,6 @@ class User {
           throw new Error('Database connection is not available');
         }
 
-        console.log('[USER_MODEL] Finding user by email:', email);
-
         const query = `
           SELECT id, email, password, name, role, createdAt, lastLoginAt, isActive
           FROM users
@@ -103,7 +95,6 @@ class User {
             console.error('[USER_MODEL] Error finding user by email:', err.message);
             reject(err);
           } else {
-            console.log('[USER_MODEL] User found by email:', row ? 'Yes' : 'No');
             resolve(row);
           }
         });
@@ -117,29 +108,23 @@ class User {
   static async authenticate(email, password) {
     return new Promise(async (resolve, reject) => {
       try {
-        console.log('[USER_MODEL] Authenticating user:', email);
-
         const user = await User.findByEmail(email);
         if (!user) {
-          console.log('[USER_MODEL] User not found for authentication');
           resolve(null);
           return;
         }
 
         if (!user.isActive) {
-          console.log('[USER_MODEL] User account is inactive');
           resolve(null);
           return;
         }
 
         const isValidPassword = await validatePassword(password, user.password);
         if (isValidPassword) {
-          console.log('[USER_MODEL] Authentication successful');
           // Return user without password
           const { password: _, ...userWithoutPassword } = user;
           resolve(userWithoutPassword);
         } else {
-          console.log('[USER_MODEL] Invalid password');
           resolve(null);
         }
       } catch (error) {
@@ -157,8 +142,6 @@ class User {
           throw new Error('Database connection is not available');
         }
 
-        console.log('[USER_MODEL] Finding user by refresh token');
-
         const query = `
           SELECT id, email, name, role, createdAt, lastLoginAt, isActive
           FROM users
@@ -170,7 +153,6 @@ class User {
             console.error('[USER_MODEL] Error finding user by refresh token:', err.message);
             reject(err);
           } else {
-            console.log('[USER_MODEL] User found by refresh token:', row ? 'Yes' : 'No');
             resolve(row);
           }
         });
@@ -189,8 +171,6 @@ class User {
           throw new Error('Database connection is not available');
         }
 
-        console.log('[USER_MODEL] Updating refresh token for user:', userId);
-
         const query = `
           UPDATE users
           SET refreshToken = ?
@@ -202,7 +182,6 @@ class User {
             console.error('[USER_MODEL] Error updating refresh token:', err.message);
             reject(err);
           } else {
-            console.log('[USER_MODEL] Refresh token updated successfully');
             resolve();
           }
         });
@@ -221,8 +200,6 @@ class User {
           throw new Error('Database connection is not available');
         }
 
-        console.log('[USER_MODEL] Clearing refresh token');
-
         const query = `
           UPDATE users
           SET refreshToken = NULL
@@ -234,7 +211,6 @@ class User {
             console.error('[USER_MODEL] Error clearing refresh token:', err.message);
             reject(err);
           } else {
-            console.log('[USER_MODEL] Refresh token cleared successfully');
             resolve();
           }
         });
@@ -253,8 +229,6 @@ class User {
           throw new Error('Database connection is not available');
         }
 
-        console.log('[USER_MODEL] Updating last login for user:', userId);
-
         const query = `
           UPDATE users
           SET lastLoginAt = CURRENT_TIMESTAMP
@@ -266,7 +240,6 @@ class User {
             console.error('[USER_MODEL] Error updating last login:', err.message);
             reject(err);
           } else {
-            console.log('[USER_MODEL] Last login updated successfully');
             resolve();
           }
         });
@@ -285,8 +258,6 @@ class User {
           throw new Error('Database connection is not available');
         }
 
-        console.log('[USER_MODEL] Finding all users');
-
         const query = `
           SELECT id, email, name, role, createdAt, lastLoginAt, isActive
           FROM users
@@ -298,7 +269,6 @@ class User {
             console.error('[USER_MODEL] Error finding all users:', err.message);
             reject(err);
           } else {
-            console.log('[USER_MODEL] Found users:', rows.length);
             resolve(rows);
           }
         });
@@ -316,8 +286,6 @@ class User {
         if (!db) {
           throw new Error('Database connection is not available');
         }
-
-        console.log('[USER_MODEL] Updating user:', id, 'with data:', updateData);
 
         const allowedFields = ['name', 'role', 'isActive'];
         const updates = [];
@@ -347,10 +315,8 @@ class User {
             console.error('[USER_MODEL] Error updating user:', err.message);
             reject(err);
           } else if (this.changes === 0) {
-            console.log('[USER_MODEL] No user found to update');
             reject(new Error('User not found'));
           } else {
-            console.log('[USER_MODEL] User updated successfully');
             User.findById(id)
               .then(user => resolve(user))
               .catch(findErr => {
@@ -374,8 +340,6 @@ class User {
           throw new Error('Database connection is not available');
         }
 
-        console.log('[USER_MODEL] Deleting user:', id);
-
         const query = 'DELETE FROM users WHERE id = ?';
 
         db.run(query, [id], function(err) {
@@ -383,10 +347,8 @@ class User {
             console.error('[USER_MODEL] Error deleting user:', err.message);
             reject(err);
           } else if (this.changes === 0) {
-            console.log('[USER_MODEL] No user found to delete');
             reject(new Error('User not found'));
           } else {
-            console.log('[USER_MODEL] User deleted successfully');
             resolve({ success: true, deletedId: id });
           }
         });

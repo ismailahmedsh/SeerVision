@@ -144,8 +144,7 @@ class Camera {
           WHERE id = ? AND userId = ?
         `;
 
-        console.log('[CAMERA_MODEL] Update query:', query);
-        console.log('[CAMERA_MODEL] Update values:', values);
+
 
         db.run(query, values, function(err) {
           if (err) {
@@ -154,7 +153,7 @@ class Camera {
           } else if (this.changes === 0) {
             reject(new Error('Camera not found or access denied'));
           } else {
-            console.log('[CAMERA_MODEL] Camera updated successfully, changes:', this.changes);
+
             Camera.findById(id, userId)
               .then(camera => resolve(camera))
               .catch(findErr => {
@@ -197,34 +196,7 @@ class Camera {
     });
   }
 
-  static async updateStatus(id, status) {
-    return new Promise((resolve, reject) => {
-      try {
-        const db = getDb();
-        if (!db) {
-          throw new Error('Database connection is not available');
-        }
 
-        const query = `
-          UPDATE cameras
-          SET status = ?, lastSeen = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `;
-
-        db.run(query, [status, id], function(err) {
-          if (err) {
-            console.error('Error updating camera status:', err.message);
-            reject(err);
-          } else {
-            resolve({ success: true });
-          }
-        });
-      } catch (error) {
-        console.error('Error in updateStatus:', error.message);
-        reject(error);
-      }
-    });
-  }
 }
 
 module.exports = Camera;

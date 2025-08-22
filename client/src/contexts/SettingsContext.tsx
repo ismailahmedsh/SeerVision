@@ -52,7 +52,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         }
         setSettings(settingsData)
       }
-    } catch (error) {
+    } catch (error: any) {
       // Silent error handling
     } finally {
       setLoading(false)
@@ -92,7 +92,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     if (!settings) return
     try {
       await updateSettings(settings)
-    } catch (error) {
+    } catch (error: any) {
       throw error
     }
   }
@@ -123,7 +123,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           }
         })
       }
-    } catch (error) {
+    } catch (error: any) {
       // Silent error handling
     }
   }

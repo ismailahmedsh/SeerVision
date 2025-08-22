@@ -71,12 +71,12 @@ export function Settings() {
         if (settingsToSave.profile?.name && result.success) {
           updateUser({ name: settingsToSave.profile.name })
         }
-      } catch (updateError) {
+      } catch (updateError: any) {
         throw new Error(`Failed to update settings: ${updateError.message}`)
       }
       try {
         await refreshSettings()
-      } catch (refreshError) {
+      } catch (refreshError: any) {
         // Silent refresh failure
       }
       
@@ -89,7 +89,7 @@ export function Settings() {
         title: "Success",
         description: "Settings saved successfully",
       })
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Error",
         description: `Failed to save settings: ${error.message}`,
@@ -125,7 +125,7 @@ export function Settings() {
         confirmPassword: ''
       })
       setChangingPassword(false)
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Error",
         description: "Failed to change password",
@@ -147,7 +147,7 @@ export function Settings() {
       })
       
       setShowResetConfirm(false)
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Error",
         description: "Failed to reset analytics data",

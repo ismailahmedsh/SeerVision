@@ -65,7 +65,7 @@ export function LiveVideoDisplay({ selectedCameraId, onCameraChange, onCameraUpd
       ;(window as any).cameraUpdateListeners.forEach((listener: Function) => {
         try {
           listener(cameraId, updatedCamera)
-        } catch (error) {
+        } catch (error: any) {
           console.error('Error in camera update listener:', error)
         }
       })
@@ -195,7 +195,7 @@ export function LiveVideoDisplay({ selectedCameraId, onCameraChange, onCameraUpd
       if (onCameraUpdated) {
         onCameraUpdated()
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to refresh camera data after settings save:', error)
     }
   }

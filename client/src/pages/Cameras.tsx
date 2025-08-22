@@ -38,7 +38,7 @@ export function Cameras() {
       setLoading(true)
       const response = await getCameras()
       setCameras(response.cameras)
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error loading cameras:", error)
       toast({
         title: "Error",
@@ -58,7 +58,7 @@ export function Cameras() {
         title: "Success",
         description: "Camera deleted successfully",
       })
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting camera:", error)
       toast({
         title: "Error",

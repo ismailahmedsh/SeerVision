@@ -105,7 +105,7 @@ export function CameraSettingsDialog({ open, onOpenChange, onCameraUpdated, came
         setSettings(defaultSettings)
         setOriginalSettings(defaultSettings) // Store original for comparison
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to load camera settings:', error)
       const fallbackSettings: CameraSettings = {
         name: camera.name,

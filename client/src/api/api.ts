@@ -1,15 +1,13 @@
 import axios from 'axios';
 
-// Set explicit baseURL for development to avoid proxy issues
 const isDevelopment = import.meta.env.DEV;
 const baseURL = isDevelopment ? 'http://localhost:3001' : '';
 
 const api = axios.create({
   baseURL,
-  timeout: 35000, // Increased to 35 seconds to accommodate backend processing + retry
+  timeout: 35000, 
 });
 
-// Request interceptor to add auth token and log requests
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('accessToken');
@@ -17,7 +15,6 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
     
-    // Log the resolved URL for debugging
     const resolvedURL = config.baseURL ? `${config.baseURL}${config.url}` : config.url;
     console.log(`[API] Request: ${config.method?.toUpperCase()} ${resolvedURL}`);
     
@@ -79,7 +76,7 @@ api.interceptors.response.use(
         
         // Retry the original request
         return api(originalRequest);
-      } catch (refreshError) {
+      } catch (refreshError: any) {
         console.error('[API] Token refresh failed:', refreshError);
         
         // Check if refresh token is also expired

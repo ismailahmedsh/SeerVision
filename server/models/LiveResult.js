@@ -21,7 +21,7 @@ class LiveResult {
             console.error('Error creating live result:', err.message);
             reject(err);
           } else {
-            console.log('Live result created with ID:', this.lastID);
+
             resolve({
               id: this.lastID,
               cameraId,
@@ -41,41 +41,7 @@ class LiveResult {
     });
   }
 
-  static async findByTimeRange(from, to, cameraId = null) {
-    return new Promise((resolve, reject) => {
-      try {
-        const db = getDb();
-        if (!db) {
-          throw new Error('Database connection is not available');
-        }
 
-        let query = `
-          SELECT * FROM live_results 
-          WHERE datetime(ts) BETWEEN datetime(?) AND datetime(?)
-        `;
-        let params = [from, to];
-
-        if (cameraId) {
-          query += ' AND cameraId = ?';
-          params.push(cameraId);
-        }
-
-        query += ' ORDER BY ts DESC';
-
-        db.all(query, params, (err, rows) => {
-          if (err) {
-            console.error('Error finding live results by time range:', err.message);
-            reject(err);
-          } else {
-            resolve(rows);
-          }
-        });
-      } catch (error) {
-        console.error('Error in findByTimeRange:', error.message);
-        reject(error);
-      }
-    });
-  }
 
   static async getSummary(from, to, userId) {
     return new Promise((resolve, reject) => {
@@ -198,134 +164,8 @@ class LiveResult {
           throw new Error('Database connection not available');
         }
 
-        let query;
-        if (timeRange === '1h') {
-          query = `
-            WITH RECURSIVE time_buckets AS (
-              SELECT datetime(?) as bucket_start
-              UNION ALL
-              SELECT datetime(bucket_start, '+1 minute')
-              FROM time_buckets
-              WHERE bucket_start < datetime(?)
-            ),
-            detections_per_bucket AS (
-              SELECT 
-                strftime('%Y-%m-%d %H:%M:00', tb.bucket_start) as bucket,
-                COUNT(lr.id) as detections
-              FROM time_buckets tb
-              LEFT JOIN live_results lr ON 
-                strftime('%Y-%m-%d %H:%M:00', lr.ts) = strftime('%Y-%m-%d %H:%M:00', tb.bucket_start)
-                AND lr.success = 1
-              GROUP BY tb.bucket_start
-            )
-            SELECT 
-              bucket as t,
-              COALESCE(detections, 0) as detections
-            FROM detections_per_bucket
-            ORDER BY bucket
-          `;
-        } else if (timeRange === '6h') {
-          query = `
-            WITH RECURSIVE time_buckets AS (
-              SELECT datetime(?) as bucket_start
-              UNION ALL
-              SELECT datetime(bucket_start, '+5 minutes')
-              FROM time_buckets
-              WHERE bucket_start < datetime(?)
-            ),
-            detections_per_bucket AS (
-              SELECT 
-                strftime('%Y-%m-%d %H:%M:00', tb.bucket_start) as bucket,
-                COUNT(lr.id) as detections
-              FROM time_buckets tb
-              LEFT JOIN live_results lr ON 
-                strftime('%Y-%m-%d %H:%M:00', lr.ts) = strftime('%Y-%m-%d %H:%M:00', tb.bucket_start)
-                AND lr.success = 1
-              GROUP BY tb.bucket_start
-            )
-            SELECT 
-              bucket as t,
-              COALESCE(detections, 0) as detections
-            FROM detections_per_bucket
-            ORDER BY bucket
-          `;
-        } else if (timeRange === '24h') {
-          query = `
-            WITH RECURSIVE time_buckets AS (
-              SELECT datetime(?) as bucket_start
-              UNION ALL
-              SELECT datetime(bucket_start, '+15 minutes')
-              FROM time_buckets
-              WHERE bucket_start < datetime(?)
-            ),
-            detections_per_bucket AS (
-              SELECT 
-                strftime('%Y-%m-%d %H:%M:00', tb.bucket_start) as bucket,
-                COUNT(lr.id) as detections
-              FROM time_buckets tb
-              LEFT JOIN live_results lr ON 
-                strftime('%Y-%m-%d %H:%M:00', lr.ts) = strftime('%Y-%m-%d %H:%M:00', tb.bucket_start)
-                AND lr.success = 1
-              GROUP BY tb.bucket_start
-            )
-            SELECT 
-              bucket as t,
-              COALESCE(detections, 0) as detections
-            FROM detections_per_bucket
-            ORDER BY bucket
-          `;
-        } else if (timeRange === '7d') {
-          query = `
-            WITH RECURSIVE time_buckets AS (
-              SELECT datetime(?) as bucket_start
-              UNION ALL
-              SELECT datetime(bucket_start, '+1 hour')
-              FROM time_buckets
-              WHERE bucket_start < datetime(?)
-            ),
-            detections_per_bucket AS (
-              SELECT 
-                strftime('%Y-%m-%d %H:00:00', tb.bucket_start) as bucket,
-                COUNT(lr.id) as detections
-              FROM time_buckets tb
-              LEFT JOIN live_results lr ON 
-                strftime('%Y-%m-%d %H:00:00', lr.ts) = strftime('%Y-%m-%d %H:00:00', tb.bucket_start)
-                AND lr.success = 1
-              GROUP BY tb.bucket_start
-            )
-            SELECT 
-              bucket as t,
-              COALESCE(detections, 0) as detections
-            FROM detections_per_bucket
-            ORDER BY bucket
-          `;
-        } else {
-          query = `
-            WITH RECURSIVE time_buckets AS (
-              SELECT datetime(?) as bucket_start
-              UNION ALL
-              SELECT datetime(bucket_start, '+1 day')
-              FROM time_buckets
-              WHERE bucket_start < datetime(?)
-            ),
-            detections_per_bucket AS (
-              SELECT 
-                strftime('%Y-%m-%d', tb.bucket_start) as bucket,
-                COUNT(lr.id) as detections
-              FROM time_buckets tb
-              LEFT JOIN live_results lr ON 
-                strftime('%Y-%m-%d', lr.ts) = strftime('%Y-%m-%d', tb.bucket_start)
-                AND lr.success = 1
-              GROUP BY tb.bucket_start
-            )
-            SELECT 
-              bucket as t,
-              COALESCE(detections, 0) as detections
-            FROM detections_per_bucket
-            ORDER BY bucket
-          `;
-        }
-
+        const query = this._generateTimeseriesQuery(timeRange, 'detections');
+        
         db.all(query, [from, to], (err, rows) => {
           if (err) {
             console.error('Error getting timeseries detections:', err.message);
@@ -349,154 +189,8 @@ class LiveResult {
           throw new Error('Database connection not available');
         }
 
-        let query;
-        if (timeRange === '1h') {
-          query = `
-            WITH RECURSIVE time_buckets AS (
-              SELECT datetime(?) as bucket_start
-              UNION ALL
-              SELECT datetime(bucket_start, '+1 minute')
-              FROM time_buckets
-              WHERE bucket_start < datetime(?)
-            ),
-            confidence_per_bucket AS (
-              SELECT 
-                strftime('%Y-%m-%d %H:%M:00', tb.bucket_start) as bucket,
-                AVG(lr.confidence) as avgConfidence,
-                COUNT(lr.id) as count
-              FROM time_buckets tb
-              LEFT JOIN live_results lr ON 
-                strftime('%Y-%m-%d %H:%M:00', lr.ts) = strftime('%Y-%m-%d %H:%M:00', tb.bucket_start)
-                AND lr.success = 1
-              GROUP BY tb.bucket_start
-            )
-            SELECT 
-              bucket as t,
-              CASE 
-                WHEN count > 0 THEN avgConfidence
-                ELSE NULL
-              END as avgConfidence
-            FROM confidence_per_bucket
-            ORDER BY bucket
-          `;
-        } else if (timeRange === '6h') {
-          query = `
-            WITH RECURSIVE time_buckets AS (
-              SELECT datetime(?) as bucket_start
-              UNION ALL
-              SELECT datetime(bucket_start, '+5 minutes')
-              FROM time_buckets
-              WHERE bucket_start < datetime(?)
-            ),
-            confidence_per_bucket AS (
-              SELECT 
-                strftime('%Y-%m-%d %H:%M:00', tb.bucket_start) as bucket,
-                AVG(lr.confidence) as avgConfidence,
-                COUNT(lr.id) as count
-              FROM time_buckets tb
-              LEFT JOIN live_results lr ON 
-                strftime('%Y-%m-%d %H:%M:00', lr.ts) = strftime('%Y-%m-%d %H:%M:00', tb.bucket_start)
-                AND lr.success = 1
-              GROUP BY tb.bucket_start
-            )
-            SELECT 
-              bucket as t,
-              CASE 
-                WHEN count > 0 THEN avgConfidence
-                ELSE NULL
-              END as avgConfidence
-            FROM confidence_per_bucket
-            ORDER BY bucket
-          `;
-        } else if (timeRange === '24h') {
-          query = `
-            WITH RECURSIVE time_buckets AS (
-              SELECT datetime(?) as bucket_start
-              UNION ALL
-              SELECT datetime(bucket_start, '+15 minutes')
-              FROM time_buckets
-              WHERE bucket_start < datetime(?)
-            ),
-            confidence_per_bucket AS (
-              SELECT 
-                strftime('%Y-%m-%d %H:%M:00', tb.bucket_start) as bucket,
-                AVG(lr.confidence) as avgConfidence,
-                COUNT(lr.id) as count
-              FROM time_buckets tb
-              LEFT JOIN live_results lr ON 
-                strftime('%Y-%m-%d %H:%M:00', lr.ts) = strftime('%Y-%m-%d %H:%M:00', tb.bucket_start)
-                AND lr.success = 1
-              GROUP BY tb.bucket_start
-            )
-            SELECT 
-              bucket as t,
-              CASE 
-                WHEN count > 0 THEN avgConfidence
-                ELSE NULL
-              END as avgConfidence
-            FROM confidence_per_bucket
-            ORDER BY bucket
-          `;
-        } else if (timeRange === '7d') {
-          query = `
-            WITH RECURSIVE time_buckets AS (
-              SELECT datetime(?) as bucket_start
-              UNION ALL
-              SELECT datetime(bucket_start, '+1 hour')
-              FROM time_buckets
-              WHERE bucket_start < datetime(?)
-            ),
-            confidence_per_bucket AS (
-              SELECT 
-                strftime('%Y-%m-%d %H:00:00', tb.bucket_start) as bucket,
-                AVG(lr.confidence) as avgConfidence,
-                COUNT(lr.id) as count
-              FROM time_buckets tb
-              LEFT JOIN live_results lr ON 
-                strftime('%Y-%m-%d %H:00:00', lr.ts) = strftime('%Y-%m-%d %H:00:00', tb.bucket_start)
-                AND lr.success = 1
-              GROUP BY tb.bucket_start
-            )
-            SELECT 
-              bucket as t,
-              CASE 
-                WHEN count > 0 THEN avgConfidence
-                ELSE NULL
-              END as avgConfidence
-            FROM confidence_per_bucket
-            ORDER BY bucket
-          `;
-        } else {
-          query = `
-            WITH RECURSIVE time_buckets AS (
-              SELECT datetime(?) as bucket_start
-              UNION ALL
-              SELECT datetime(bucket_start, '+1 day')
-              FROM time_buckets
-              WHERE bucket_start < datetime(?)
-            ),
-            confidence_per_bucket AS (
-              SELECT 
-                strftime('%Y-%m-%d', tb.bucket_start) as bucket,
-                AVG(lr.confidence) as avgConfidence,
-                COUNT(lr.id) as count
-              FROM time_buckets tb
-              LEFT JOIN live_results lr ON 
-                strftime('%Y-%m-%d', lr.ts) = strftime('%Y-%m-%d', tb.bucket_start)
-                AND lr.success = 1
-              GROUP BY tb.bucket_start
-            )
-            SELECT 
-              bucket as t,
-              CASE 
-                WHEN count > 0 THEN avgConfidence
-                ELSE NULL
-              END as avgConfidence
-            FROM confidence_per_bucket
-            ORDER BY bucket
-          `;
-        }
-
+        const query = this._generateTimeseriesQuery(timeRange, 'confidence');
+        
         db.all(query, [from, to], (err, rows) => {
           if (err) {
             console.error('Error getting timeseries confidence:', err.message);
@@ -507,9 +201,79 @@ class LiveResult {
         });
       } catch (error) {
         console.error('Error in getTimeseriesConfidence:', error.message);
-        reject(err);
+        reject(error);
       }
     });
+  }
+
+  // Helper function to generate timeseries queries - eliminates massive code duplication
+  static _generateTimeseriesQuery(timeRange, queryType) {
+    // Define time bucket configurations
+    const timeConfigs = {
+      '1h': { interval: '+1 minute', format: '%Y-%m-%d %H:%M:00' },
+      '6h': { interval: '+5 minutes', format: '%Y-%m-%d %H:%M:00' },
+      '24h': { interval: '+15 minutes', format: '%Y-%m-%d %H:%M:00' },
+      '7d': { interval: '+1 hour', format: '%Y-%m-%d %H:00:00' },
+      '30d': { interval: '+1 day', format: '%Y-%m-%d' }
+    };
+
+    const config = timeConfigs[timeRange] || timeConfigs['7d'];
+    
+    if (queryType === 'detections') {
+      return `
+        WITH RECURSIVE time_buckets AS (
+          SELECT datetime(?) as bucket_start
+          UNION ALL
+          SELECT datetime(bucket_start, '${config.interval}')
+          FROM time_buckets
+          WHERE bucket_start < datetime(?)
+        ),
+        detections_per_bucket AS (
+          SELECT 
+            strftime('${config.format}', tb.bucket_start) as bucket,
+            COUNT(lr.id) as detections
+          FROM time_buckets tb
+          LEFT JOIN live_results lr ON 
+            strftime('${config.format}', lr.ts) = strftime('${config.format}', tb.bucket_start)
+            AND lr.success = 1
+          GROUP BY tb.bucket_start
+        )
+        SELECT 
+          bucket as t,
+          COALESCE(detections, 0) as detections
+        FROM detections_per_bucket
+        ORDER BY bucket
+      `;
+    } else if (queryType === 'confidence') {
+      return `
+        WITH RECURSIVE time_buckets AS (
+          SELECT datetime(?) as bucket_start
+          UNION ALL
+          SELECT datetime(bucket_start, '${config.interval}')
+          FROM time_buckets
+          WHERE bucket_start < datetime(?)
+        ),
+        confidence_per_bucket AS (
+          SELECT 
+            strftime('${config.format}', tb.bucket_start) as bucket,
+            AVG(lr.confidence) as avgConfidence,
+            COUNT(lr.id) as count
+          FROM time_buckets tb
+          LEFT JOIN live_results lr ON 
+            strftime('${config.format}', lr.ts) = strftime('${config.format}', tb.bucket_start)
+            AND lr.success = 1
+          GROUP BY tb.bucket_start
+        )
+        SELECT 
+          bucket as t,
+          CASE 
+            WHEN count > 0 THEN avgConfidence
+            ELSE NULL
+          END as avgConfidence
+        FROM confidence_per_bucket
+        ORDER BY bucket
+      `;
+    }
   }
 }
 

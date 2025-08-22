@@ -62,7 +62,7 @@ export function ExportModal({ open, onOpenChange, connection, cameraName, onStar
             secret: config.secret
           }
           setWebhooks([existingWebhook])
-        } catch (error) {
+        } catch (error: any) {
           console.error('Failed to load webhook config:', error)
         }
       }

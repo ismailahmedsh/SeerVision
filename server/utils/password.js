@@ -10,6 +10,7 @@ const validatePassword = async (password, hash) => {
 };
 
 module.exports = {
-  generatePasswordHash,
+  hashPassword: generatePasswordHash,  // Export with the name used by User.js
+  generatePasswordHash,                // Keep old name for compatibility
   validatePassword
 };

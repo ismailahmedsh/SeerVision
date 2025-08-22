@@ -74,7 +74,7 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
       const devices = await navigator.mediaDevices.enumerateDevices()
       const videoDevices = devices.filter(device => device.kind === 'videoinput')
       setAvailableDevices(videoDevices)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to load available devices:', error)
     }
   }
@@ -130,7 +130,7 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
             description: "USB camera is working properly",
           })
           return
-        } catch (error) {
+        } catch (error: any) {
           console.error('USB camera test failed:', error)
           setTestResult({
             success: false,
@@ -168,7 +168,7 @@ export function AddCameraDialog({ open, onOpenChange, onCameraAdded }: AddCamera
           variant: "destructive",
         })
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error testing connection:', error)
       setTestResult({
         success: false,

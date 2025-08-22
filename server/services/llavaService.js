@@ -64,9 +64,7 @@ class LLaVAService {
       ]
     };
 
-    console.log(`[LLAVA_SERVICE] Initialized with NO TIMEOUTS for all requests`);
-    console.log(`[LLAVA_SERVICE] HTTP agents configured with keep-alive`);
-    console.log(`[LLAVA_SERVICE] Simple Queue Logic enabled - max ${this.maxConcurrency} concurrent streams`);
+
   }
 
   async preprocessFrame(frameBase64, targetSize = 256) {
@@ -120,8 +118,6 @@ class LLaVAService {
   }
 
   enqueueFrame(streamId, frameData) {
-    console.log(`[QUEUE] [${frameData.requestId}] Enqueueing frame for stream: ${streamId}`);
-    
     // Initialize stream queue if needed
     if (!this.streamQueues.has(streamId)) {
       this.streamQueues.set(streamId, { processing: null, waiting: null });
@@ -133,7 +129,6 @@ class LLaVAService {
     if (queue.processing) {
       // Replace waiting frame if exists (newest frame wins)
       if (queue.waiting) {
-        console.log(`[QUEUE] [${frameData.requestId}] Replacing waiting frame for stream: ${streamId}`);
         queue.waiting.resolve({
           status: 'superseded',
           message: 'Frame superseded by newer frame',
@@ -143,7 +138,6 @@ class LLaVAService {
       }
       
       queue.waiting = frameData;
-      console.log(`[QUEUE] [${frameData.requestId}] Frame queued as waiting for stream: ${streamId}`);
       return;
     }
     
@@ -154,7 +148,6 @@ class LLaVAService {
       if (!this.globalWaitingList.includes(streamId)) {
         this.globalWaitingList.push(streamId);
       }
-      console.log(`[QUEUE] [${frameData.requestId}] Global capacity full (${this.activeStreams.size}/${this.maxConcurrency}), stream ${streamId} waiting`);
       return;
     }
     
@@ -163,8 +156,6 @@ class LLaVAService {
   }
   
   async startStreamProcessing(streamId, frameData) {
-    console.log(`[QUEUE] [${frameData.requestId}] Starting processing for stream: ${streamId}`);
-    
     const queue = this.streamQueues.get(streamId);
     queue.processing = frameData;
     this.activeStreams.add(streamId);
@@ -179,7 +170,6 @@ class LLaVAService {
       );
       
       frameData.resolve(result);
-      console.log(`[QUEUE] [${frameData.requestId}] Processing completed for stream: ${streamId}`);
       
     } catch (error) {
       frameData.reject(error);
@@ -193,7 +183,6 @@ class LLaVAService {
       if (queue.waiting) {
         const nextFrame = queue.waiting;
         queue.waiting = null;
-        console.log(`[QUEUE] [${nextFrame.requestId}] Processing waiting frame for stream: ${streamId}`);
         this.startStreamProcessing(streamId, nextFrame);
       } else if (this.globalWaitingList.length > 0) {
         // No waiting frame, check global waiting list
@@ -210,7 +199,7 @@ class LLaVAService {
       if (waitingQueue && waitingQueue.waiting && !waitingQueue.processing) {
         const frameData = waitingQueue.waiting;
         waitingQueue.waiting = null;
-        console.log(`[QUEUE] [${frameData.requestId}] Starting processing from global waiting list for stream: ${waitingStreamId}`);
+
         this.startStreamProcessing(waitingStreamId, frameData);
       }
     }
@@ -233,11 +222,7 @@ class LLaVAService {
       streamId.endsWith('_novelty_async_late')
     );
 
-    console.log(`[LLAVA_SERVICE] [${requestId}] Starting ${isNoveltyRequest ? 'novelty' : isSuggestionRequest ? 'suggestion' : 'analysis'} request`);
 
-    if (isNoveltyRequest) {
-      console.log(`[LLAVA_SERVICE] [${requestId}] NOVELTY REQUEST DETECTED - UNLIMITED TIME`);
-    }
 
     // ALL ROUTES GO THROUGH QUEUE - No direct processing
     return await this.analyzeFrameWithQueue(frameBase64, prompt, intervalSeconds, streamId);
@@ -293,7 +278,7 @@ class LLaVAService {
         }
       };
 
-      console.log(`[LLAVA_SERVICE] [${requestId}] Making request to Ollama with NO TIMEOUT`);
+      
 
       let response;
       const maxRetries = isNoveltyRequest ? 3 : 1; // Retry novelty requests
@@ -301,8 +286,6 @@ class LLaVAService {
 
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-          console.log(`[LLAVA_SERVICE] [${requestId}] Attempt ${attempt}/${maxRetries}`);
-
           // Use hardened HTTP client with no timeout and keep-alive
           response = await axios.post(`${this.ollamaUrl}/api/generate`, requestData, {
             timeout: 0, // No timeout
@@ -319,7 +302,6 @@ class LLaVAService {
             }
           });
 
-          console.log(`[LLAVA_SERVICE] [${requestId}] Ollama request completed successfully on attempt ${attempt}`);
           break; // Success, exit retry loop
 
         } catch (error) {
@@ -338,7 +320,6 @@ class LLaVAService {
 
           if (isRetryable && attempt < maxRetries) {
             const delay = Math.pow(2, attempt - 1) * 250; // Exponential backoff: 250ms, 500ms, 1s
-            console.log(`[LLAVA_SERVICE] [${requestId}] Retrying in ${delay}ms (retryable error: ${error.code || error.message})`);
             await new Promise(resolve => setTimeout(resolve, delay));
             continue;
           } else {
@@ -369,12 +350,7 @@ class LLaVAService {
       const accuracyScore = this.calculateOptimizedConfidenceScore(answer, ollamaMetrics);
       const totalProcessingTime = Date.now() - analysisStartTime;
 
-      if (isNoveltyRequest) {
-        console.log(`[LLAVA_SERVICE] [${requestId}] Novelty request completed`);
-        console.log(`[LLAVA_SERVICE] [${requestId}] NOVELTY RESPONSE: "${answer}"`);
-      } else {
-        console.log(`[LLAVA_SERVICE] [${requestId}] ${isSuggestionRequest ? 'Suggestion' : 'Analysis'} request completed`);
-      }
+
 
       return {
         answer,
@@ -503,28 +479,19 @@ class LLaVAService {
 
     for (let attempt = 0; attempt < retryPrompts.length; attempt++) {
       try {
-        console.log(`[LLAVA_SERVICE] Suggestion attempt ${attempt + 1} with prompt: ${retryPrompts[attempt]}`);
-
         const suggestionStreamId = `suggestions-${Date.now()}-attempt-${attempt}`;
         const result = await this.analyzeFrame(frameBase64, retryPrompts[attempt], 30, suggestionStreamId);
 
-        console.log(`[LLAVA_SERVICE] Raw model response for attempt ${attempt + 1}:`, result.answer);
-
         const suggestions = this.processModelResponse(result.answer);
-        console.log(`[LLAVA_SERVICE] Processed suggestions for attempt ${attempt + 1}:`, suggestions);
 
         accumulatedSuggestions = [...accumulatedSuggestions, ...suggestions];
         accumulatedSuggestions = [...new Set(accumulatedSuggestions)];
 
-        console.log(`[LLAVA_SERVICE] Accumulated suggestions after attempt ${attempt + 1}:`, accumulatedSuggestions);
-
         if (accumulatedSuggestions.length > 0) {
-          console.log(`[LLAVA_SERVICE] Success: returning ${accumulatedSuggestions.length} accumulated suggestions`);
           return accumulatedSuggestions.slice(0, 6);
         }
 
         if (attempt === retryPrompts.length - 1) {
-          console.log(`[LLAVA_SERVICE] All attempts completed with no valid suggestions`);
           throw new Error(`No valid suggestions generated after ${retryPrompts.length} attempts`);
         }
 
@@ -535,10 +502,8 @@ class LLaVAService {
 
         if (attempt === retryPrompts.length - 1) {
           if (accumulatedSuggestions.length > 0) {
-            console.log(`[LLAVA_SERVICE] Final attempt failed but returning ${accumulatedSuggestions.length} accumulated suggestions`);
             return accumulatedSuggestions.slice(0, 6);
           } else {
-            console.log(`[LLAVA_SERVICE] All attempts failed with no accumulated suggestions`);
             throw new Error(`All retry attempts failed. Final error: ${error.message}`);
           }
         }
@@ -562,8 +527,6 @@ class LLaVAService {
   }
 
   processModelResponse(answer) {
-    console.log('[LLAVA_SERVICE] Processing raw model response (minimal filtering):', answer);
-
     const suggestions = answer
       .split('\n')
       .map((line) => {
@@ -579,8 +542,6 @@ class LLaVAService {
       .filter(suggestion => suggestion !== null && suggestion.trim().length > 0);
 
     if (suggestions.length === 0) {
-      console.log('[LLAVA_SERVICE] No newline-separated suggestions found, trying comma/period separation');
-
       const alternativeSuggestions = answer
         .split(/[,.;]/)
         .map(part => {
@@ -590,19 +551,16 @@ class LLaVAService {
         })
         .filter(suggestion => suggestion !== null);
 
-      console.log('[LLAVA_SERVICE] Alternative parsing found:', alternativeSuggestions);
       suggestions.push(...alternativeSuggestions);
     }
 
     if (suggestions.length === 0 && answer.trim().length > 0) {
-      console.log('[LLAVA_SERVICE] No parsed suggestions, using entire response as single suggestion');
       const entireResponse = answer.trim().replace(/^["']|["']$/g, '');
       if (entireResponse.length > 0) {
         suggestions.push(entireResponse);
       }
     }
 
-    console.log('[LLAVA_SERVICE] Final extracted suggestions (ultra-minimal processing):', suggestions);
     return suggestions.slice(0, 6);
   }
 
@@ -641,7 +599,7 @@ class LLaVAService {
 
   async generateEmbedding(text) {
     try {
-      console.log('[LLAVA_SERVICE] Generating embedding for text similarity check');
+      
       
       const response = await axios.post(`${this.ollamaUrl}/api/embeddings`, {
         model: 'nomic-embed-text',
@@ -654,7 +612,7 @@ class LLaVAService {
       });
 
       if (response.data && response.data.embedding) {
-        console.log(`[LLAVA_SERVICE] Generated embedding vector of length ${response.data.embedding.length}`);
+
         return response.data.embedding;
       } else {
         console.error('[LLAVA_SERVICE] Invalid embedding response structure');

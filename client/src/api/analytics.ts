@@ -7,7 +7,7 @@ export const getAnalyticsData = async (params?: { timeRange?: string }) => {
     
     const response = await api.get(`/api/analytics?${queryParams}`);
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(error?.response?.data?.error || error.message);
   }
 };
@@ -21,7 +21,7 @@ export const getAnalyticsSummary = async (params: { from: string; to: string; ca
     
     const response = await api.get(`/api/analytics/summary?${queryParams}`);
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(error?.response?.data?.error || error.message);
   }
 };
@@ -35,7 +35,7 @@ export const getTopQueries = async (params: { from: string; to: string; limit?: 
     
     const response = await api.get(`/api/analytics/top-queries?${queryParams}`);
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(error?.response?.data?.error || error.message);
   }
 };
@@ -48,7 +48,7 @@ export const getCameraPerformance = async (params: { from: string; to: string })
     
     const response = await api.get(`/api/analytics/camera-performance?${queryParams}`);
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(error?.response?.data?.error || error.message);
   }
 };
@@ -62,7 +62,7 @@ export const getDetectionsTimeseries = async (params?: { timeRange?: string; fro
     
     const response = await api.get(`/api/analytics/timeseries/detections?${queryParams}`);
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(error?.response?.data?.error || error.message);
   }
 };
@@ -76,7 +76,7 @@ export const getConfidenceTimeseries = async (params?: { timeRange?: string; fro
     
     const response = await api.get(`/api/analytics/timeseries/confidence?${queryParams}`);
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(error?.response?.data?.error || error.message);
   }
 };

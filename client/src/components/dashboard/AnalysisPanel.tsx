@@ -69,7 +69,7 @@ const extractJsonFromResponse = (response: string): string | null => {
     const jsonPortion = response.substring(firstBrace, lastBrace + 1);
     JSON.parse(jsonPortion);
     return jsonPortion;
-  } catch (error) {
+  } catch (error: any) {
     return null;
   }
 };
@@ -109,7 +109,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
         const response = await getCameras()
         const cameras = response.cameras || []
         setCameras(cameras)
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to load cameras:', error)
       }
     }
@@ -124,7 +124,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
           const response = await getCameras()
           const updatedCameras = response.cameras || []
           setCameras(updatedCameras)
-        } catch (error) {
+        } catch (error: any) {
           console.error('Failed to reload cameras:', error)
         }
       }
@@ -154,7 +154,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
       ;(window as any).cameraUpdateListeners.forEach((listener: Function) => {
         try {
           listener(cameraId, updatedCamera)
-        } catch (error) {
+        } catch (error: any) {
           console.error('Error in camera update listener:', error)
         }
       })
@@ -235,7 +235,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
       if (currentSelectedCamera.type === 'usb' || currentSelectedCamera.streamUrl?.startsWith('usb:')) {
         try {
           frameBase64 = await captureFrameFromVideo()
-        } catch (frameError) {
+        } catch (frameError: any) {
           console.error('Failed to capture frame for suggestions:', frameError)
           setSuggestionsError("Unable to capture frame from camera")
           return
@@ -377,7 +377,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
           }, 'image/jpeg', 0.7)
         }
 
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error in captureFrameFromVideo:', error)
         reject(error)
       }
@@ -506,7 +506,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
         try {
           frameBase64 = await captureFrameFromVideo()
           frameRetryCount.current = 0
-        } catch (frameError) {
+        } catch (frameError: any) {
           console.error('Frame capture failed:', frameError)
           frameRetryCount.current++
           if (frameRetryCount.current >= maxFrameRetries) {
@@ -606,7 +606,7 @@ export function AnalysisPanel({ selectedCameraId, cameraUpdateTrigger }: Analysi
               />
             </div>
           )
-        } catch (error) {
+        } catch (error: any) {
           // Fallback to plain text if JSON parsing fails
         }
       }

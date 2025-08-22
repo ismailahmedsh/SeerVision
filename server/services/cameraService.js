@@ -4,8 +4,6 @@ const { ensureMemoryColumnExists } = require('../config/database');
 class CameraService {
   static async createCamera(cameraData, userId) {
     try {
-      console.log('[CAMERA_SERVICE] Creating camera for user:', userId);
-      
       // Validate required fields
       const { name, type, streamUrl, defaultInterval } = cameraData;
       if (!name || !type || !streamUrl) {
@@ -26,7 +24,6 @@ class CameraService {
         analysisInterval: defaultInterval || 30
       });
 
-      console.log('[CAMERA_SERVICE] Camera created successfully:', camera._id, 'with interval:', defaultInterval || 30);
       return camera;
     } catch (error) {
       console.error('[CAMERA_SERVICE] Error creating camera:', error.message);
@@ -36,74 +33,32 @@ class CameraService {
 
   static async getAllCameras(userId) {
     try {
-      console.log('[CAMERA_SERVICE] Getting all cameras');
-      console.log('[CAMERA_SERVICE] Service method called at:', new Date().toISOString());
-      console.log('[CAMERA_SERVICE] Getting all cameras for user:', userId);
-      console.log('[CAMERA_SERVICE] User ID type:', typeof userId);
-      console.log('[CAMERA_SERVICE] User ID value:', userId);
-
       if (!userId) {
-        console.error('[CAMERA_SERVICE] No userId provided');
-        console.error('[CAMERA_SERVICE] userId is:', userId);
         throw new Error('User ID is required');
       }
 
       // Ensure memory column exists before querying
       try {
         await ensureMemoryColumnExists();
-        console.log('[CAMERA_SERVICE] Memory column verification completed');
       } catch (error) {
         console.warn('[CAMERA_SERVICE] Warning: Could not verify memory column:', error.message);
         // Continue anyway - the model will handle missing columns gracefully
       }
 
-      console.log('[CAMERA_SERVICE] Calling Camera.findAll...');
       const cameras = await Camera.findAll(userId);
-      console.log('[CAMERA_SERVICE] Camera.findAll completed');
-      console.log('[CAMERA_SERVICE] Cameras returned type:', typeof cameras);
-      console.log('[CAMERA_SERVICE] Cameras is array:', Array.isArray(cameras));
-      console.log('[CAMERA_SERVICE] Cameras count:', cameras?.length || 0);
-      console.log('[CAMERA_SERVICE] Raw camera data from model:', JSON.stringify(cameras, null, 2));
 
-      if (cameras && cameras.length > 0) {
-        console.log('[CAMERA_SERVICE] Processing cameras...');
-        cameras.forEach((camera, index) => {
-          console.log(`[CAMERA_SERVICE] Camera ${index} details:`, {
-            id: camera._id,
-            name: camera.name,
-            type: camera.type,
-            streamUrl: camera.streamUrl,
-            status: camera.status,
-            analysisInterval: camera.analysisInterval,
-            memory: camera.memory,
-            createdAt: camera.createdAt
-          });
-        });
-      } else {
-        console.log('[CAMERA_SERVICE] No cameras found for user:', userId);
-      }
-
-              console.log('[CAMERA_SERVICE] All cameras retrieved successfully');
       return cameras;
     } catch (error) {
-              console.error('[CAMERA_SERVICE] Error getting all cameras');
-      console.error('[CAMERA_SERVICE] Error timestamp:', new Date().toISOString());
-      console.error('[CAMERA_SERVICE] Error in getAllCameras:', error.message);
-      console.error('[CAMERA_SERVICE] Error type:', error.constructor.name);
-      console.error('[CAMERA_SERVICE] Error stack:', error.stack);
-      console.error('[CAMERA_SERVICE] Error details:', error);
+      console.error('[CAMERA_SERVICE] Error getting all cameras:', error.message);
       throw error;
     }
   }
 
   static async getCameraById(id, userId = null) {
     try {
-      console.log('[CAMERA_SERVICE] Getting camera by ID:', id, 'for user:', userId);
-      
       // Ensure memory column exists before querying
       try {
         await ensureMemoryColumnExists();
-        console.log('[CAMERA_SERVICE] Memory column verification completed');
       } catch (error) {
         console.warn('[CAMERA_SERVICE] Warning: Could not verify memory column:', error.message);
         // Continue anyway - the model will handle missing columns gracefully
@@ -122,8 +77,6 @@ class CameraService {
 
   static async updateCamera(id, updateData, userId) {
     try {
-      console.log('[CAMERA_SERVICE] Updating camera:', id);
-      
       // If streamUrl or type is being updated, test the connection
       if (updateData.streamUrl || updateData.type) {
         const streamUrl = updateData.streamUrl;
@@ -138,7 +91,6 @@ class CameraService {
       }
 
       const camera = await Camera.update(id, updateData, userId);
-      console.log('[CAMERA_SERVICE] Camera updated successfully');
       return camera;
     } catch (error) {
       console.error('[CAMERA_SERVICE] Error updating camera:', error.message);
@@ -148,9 +100,7 @@ class CameraService {
 
   static async deleteCamera(id, userId) {
     try {
-      console.log('[CAMERA_SERVICE] Deleting camera:', id);
       const result = await Camera.delete(id, userId);
-      console.log('[CAMERA_SERVICE] Camera deleted successfully');
       return result;
     } catch (error) {
       console.error('[CAMERA_SERVICE] Error deleting camera:', error.message);
@@ -160,8 +110,6 @@ class CameraService {
 
   static async testCameraConnection(streamUrl, type) {
     try {
-      console.log('[CAMERA_SERVICE] Testing camera connection:', { streamUrl, type });
-      
       // Basic URL validation
       if (!streamUrl || !streamUrl.trim()) {
         return {
@@ -207,13 +155,11 @@ class CameraService {
       const success = Math.random() > 0.1;
       
       if (success) {
-        console.log('[CAMERA_SERVICE] Camera connection test successful');
         return {
           success: true,
           message: 'Camera connection successful. Stream is accessible and video feed is working.'
         };
       } else {
-        console.log('[CAMERA_SERVICE] Camera connection test failed');
         return {
           success: false,
           message: 'Failed to connect to camera. Please check the URL, credentials, and network connectivity.'
@@ -230,12 +176,9 @@ class CameraService {
 
   static async getCameraSettings(id, userId) {
     try {
-      console.log('[CAMERA_SERVICE] Getting camera settings:', id);
-      
       // Ensure memory column exists before querying
       try {
         await ensureMemoryColumnExists();
-        console.log('[CAMERA_SERVICE] Memory column verification completed');
       } catch (error) {
         console.warn('[CAMERA_SERVICE] Warning: Could not verify memory column:', error.message);
         // Continue anyway - the model will handle missing columns gracefully
@@ -262,7 +205,6 @@ class CameraService {
         }
       };
 
-      console.log('[CAMERA_SERVICE] Camera settings retrieved');
       return settings;
     } catch (error) {
       console.error('[CAMERA_SERVICE] Error getting camera settings:', error.message);
@@ -272,9 +214,6 @@ class CameraService {
 
   static async updateCameraSettings(id, settings, userId) {
     try {
-      console.log('[CAMERA_SERVICE] Updating camera settings:', id);
-      console.log('[CAMERA_SERVICE] Settings to update:', settings);
-
       const updateData = {
         recordingEnabled: settings.recordingEnabled,
         motionDetection: settings.motionDetection,
@@ -289,15 +228,9 @@ class CameraService {
         updateData.bitrate = settings.qualitySettings.bitrate;
       }
 
-      console.log('[CAMERA_SERVICE] Final update data:', updateData);
-
       await Camera.update(id, updateData, userId);
-      console.log('[CAMERA_SERVICE] Camera settings updated successfully');
       
-      // Log the analysis interval specifically
-      if (settings.analysisInterval) {
-        console.log('[CAMERA_SERVICE] Analysis interval updated to:', settings.analysisInterval, 'seconds');
-      }
+
       
       return { success: true };
     } catch (error) {

@@ -43,38 +43,7 @@ class VideoAnalysis {
     });
   }
 
-  static async findById(id) {
-    return new Promise((resolve, reject) => {
-      try {
-        const db = getDb();
-        if (!db) {
-          throw new Error('Database connection is not available');
-        }
 
-        const query = `
-          SELECT id as _id, streamId, cameraId, userId, prompt, status, analysisInterval, jsonOption,
-                 createdAt, updatedAt
-          FROM video_analysis
-          WHERE id = ?
-        `;
-
-        db.get(query, [id], (err, row) => {
-          if (err) {
-            console.error('[VIDEO_ANALYSIS_MODEL] Error finding analysis:', err.message);
-            reject(err);
-          } else {
-            if (row) {
-              row.jsonOption = Boolean(row.jsonOption);
-            }
-            resolve(row);
-          }
-        });
-      } catch (error) {
-        console.error('[VIDEO_ANALYSIS_MODEL] CRITICAL ERROR in findById:', error.message);
-        reject(error);
-      }
-    });
-  }
 
   static async findByStreamId(streamId) {
     return new Promise((resolve, reject) => {
@@ -128,7 +97,7 @@ class VideoAnalysis {
             console.error('[VIDEO_ANALYSIS_MODEL] Error updating status:', err.message);
             reject(err);
           } else {
-            console.log('[VIDEO_ANALYSIS_MODEL] Analysis status updated');
+
             resolve({ success: true });
           }
         });
@@ -158,7 +127,7 @@ class VideoAnalysis {
             console.error('[VIDEO_ANALYSIS_MODEL] Error updating analysis interval:', err.message);
             reject(err);
           } else {
-            console.log('[VIDEO_ANALYSIS_MODEL] Analysis interval updated to:', analysisInterval);
+
             resolve({ success: true });
           }
         });
@@ -189,7 +158,7 @@ class VideoAnalysis {
             console.error('[VIDEO_ANALYSIS_MODEL] Error creating result:', err.message);
             reject(err);
           } else {
-            console.log('[VIDEO_ANALYSIS_MODEL] Analysis result created with ID:', this.lastID);
+
             resolve({ _id: this.lastID, ...resultData });
           }
         });

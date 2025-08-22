@@ -18,7 +18,7 @@ export const getCameras = async () => {
     }
     
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(error?.response?.data?.error || error.message);
   }
 }
@@ -32,7 +32,7 @@ export const addCamera = async (data: { name: string; type: string; streamUrl: s
     const response = await api.post('/api/cameras', data);
     invalidateCameraCache();
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(error?.response?.data?.error || error.message);
   }
 }
@@ -41,7 +41,7 @@ export const testCameraConnection = async (data: { streamUrl: string; type: stri
   try {
     const response = await api.post('/api/cameras/test', data);
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(error?.response?.data?.error || error.message);
   }
 }
@@ -51,7 +51,7 @@ export const deleteCamera = async (id: string) => {
     const response = await api.delete(`/api/cameras/${id}`);
     invalidateCameraCache();
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(error?.response?.data?.error || error.message);
   }
 }
@@ -60,7 +60,7 @@ export const updateCamera = async (id: string, data: { name?: string; type?: str
   try {
     const response = await api.put(`/api/cameras/${id}`, data);
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(error?.response?.data?.error || error.message);
   }
 }
@@ -69,7 +69,7 @@ export const getCameraSettings = async (id: string) => {
   try {
     const response = await api.get(`/api/cameras/${id}/settings`);
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(error?.response?.data?.error || error.message);
   }
 }
@@ -79,7 +79,7 @@ export const updateCameraSettings = async (id: string, settings: any) => {
     const response = await api.put(`/api/cameras/${id}/settings`, { settings });
     invalidateCameraCache();
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(error?.response?.data?.error || error.message);
   }
 }
